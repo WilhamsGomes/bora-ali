@@ -5,6 +5,7 @@ import { Hero } from "@/components/landing/hero";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { SiteHeader } from "@/components/landing/site-header";
 import { StepsSection } from "@/components/landing/steps-section";
+//
 
 export default function Home() {
   return (
