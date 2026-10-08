@@ -1,26 +1,286 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --color-cream: #faf7f2;
+  --color-cream-200: #f3ede3;
+  --color-sand: #e7dfd1;
+  --color-forest: #183f36;
+  --color-forest-700: #1f4d42;
+  --color-forest-600: #2a5f52;
+  --color-forest-100: #e2ece7;
+  --color-coral: #f4775b;
+  --color-coral-600: #e0603f;
+  --color-coral-700: #b5432a;
+  --color-coral-100: #fde7e0;
+  --color-ink: #202723;
+  --color-ink-soft: #4f5a54;
+  --color-line: #e4ddd1;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-hand: var(--font-caveat), cursive;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --shadow-soft: 0 1px 2px rgb(24 63 54 / 0.04), 0 8px 24px -8px rgb(24 63 54 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(24 63 54 / 0.05), 0 24px 48px -16px rgb(24 63 54 / 0.25);
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-fade-in: fade-in 0.2s ease-out both;
+  --animate-sheet-up: sheet-up 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-slide-left: slide-left 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-pop: pop 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes sheet-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  @keyframes slide-left {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes pop {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
 }
 
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--color-coral-100);
+  color: var(--color-ink);
+}
+
+/* Foco visível e com contraste em fundos claros e escuros */
+:focus-visible {
+  outline: 3px solid var(--color-forest);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.on-dark :focus-visible {
+  outline-color: var(--color-cream);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Impressão: só a prévia de exportação vai para o papel / PDF */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+    /* O modal trava a rolagem com overflow: hidden; na impressão isso limitaria a uma página */
+    overflow: visible !important;
+    height: auto !important;
+  }
+  body.printing-export > *:not(.print-root) {
+    display: none !important;
+  }
+  body.printing-export .print-root .print-hide {
+    display: none !important;
+  }
+  body.printing-export .print-root,
+  body.printing-export .print-root * {
+    box-shadow: none !important;
+    animation: none !important;
+  }
+  body.printing-export .print-root .print-area {
+    position: static !important;
+    transform: none !important;
+    margin: 0 auto !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  /* A raiz do modal é fixa na tela; fixa, ela imprimiria só uma página */
+  body.printing-export > .print-root {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+  /* Dias longos ocupam várias páginas, mas uma atividade nunca é cortada ao meio */
+  body.printing-export .print-root .export-keep {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.printing-export .print-root [data-export-root] {
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+  /* Em flex, o Chrome não aumenta a caixa ao paginar: o fundo terminaria antes do conteúdo */
+  body.printing-export .print-root [data-export-root],
+  body.printing-export .print-root [data-export-root] > div {
+    display: block !important;
+    min-height: 0 !important;
+  }
+  body.printing-export .print-root .print-reset {
+    position: static !important;
+    inset: auto !important;
+    overflow: visible !important;
+    background: none !important;
+    padding: 0 !important;
+    display: block !important;
+    max-height: none !important;
+    height: auto !important;
+    width: auto !important;
+    border: 0 !important;
+  }
+}
+
+/* ───────────── Mapa do dia (MapLibre) ───────────── */
+
+.ba-marker {
+  display: flex;
+  min-width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  background: var(--ba-marker-color, var(--color-forest));
+  color: #fff;
+  font: 700 12px/1 var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.28);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.ba-marker:hover {
+  transform: scale(1.08);
+}
+.ba-marker:focus-visible {
+  outline: 3px solid var(--color-forest);
+  outline-offset: 2px;
+}
+.ba-marker--group {
+  box-shadow:
+    3px 3px 0 -1px #fff,
+    3px 3px 0 1px var(--color-forest),
+    0 2px 6px rgb(0 0 0 / 0.28);
+}
+.ba-marker--active {
+  z-index: 2;
+  transform: scale(1.18);
+  box-shadow:
+    0 0 0 4px var(--color-coral),
+    0 4px 10px rgb(0 0 0 / 0.3);
+}
+
+.maplibregl-popup-content {
+  border-radius: 16px;
+  padding: 12px 32px 12px 14px;
+  box-shadow: var(--shadow-lift);
+  font-family: inherit;
+}
+.maplibregl-popup-close-button {
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+  color: var(--color-ink-soft);
+  border-radius: 9999px;
+}
+.ba-popup {
+  display: flex;
+  max-height: 260px;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  color: var(--color-ink);
+}
+.ba-popup__note {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-coral-700);
+}
+.ba-popup__item + .ba-popup__item {
+  border-top: 1px solid var(--color-line);
+  padding-top: 10px;
+}
+.ba-popup__title {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.ba-popup__badge {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.ba-popup__meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.ba-popup__address {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+.ba-popup__actions {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ba-popup__actions a,
+.ba-popup__actions button {
+  color: var(--color-forest);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  min-height: 28px;
 }

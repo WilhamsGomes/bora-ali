@@ -1,36 +1,138 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BoraAli — frontend
 
-## Getting Started
+Interface do BoraAli: roteiros de viagem dia a dia, colaboração, link público, pagamento único por viagem e
+sugestões com IA. Consome a API do diretório `backend/` (NestJS). Os únicos dados ilustrativos estão na landing
+page e aparecem marcados como exemplo.
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router, Cache Components) · React 19 · TypeScript · Tailwind CSS 4 · TanStack Query 5 ·
+lucide-react · html-to-image (PNG).
+
+## Como executar
+
+Pré-requisito: a API rodando (veja `backend/README.md`; por padrão em `http://localhost:3333/api/v1`, com
+`CORS_ORIGINS` e `FRONTEND_URL` apontando para `http://localhost:3000`).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local   # ajuste NEXT_PUBLIC_API_URL se necessário
+npm install
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Produção: `npm run build && npm start`. Checks: `npx tsc --noEmit`, `npm run lint`, `npm run build`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Variáveis de ambiente
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variável | Exemplo | Uso |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3333/api/v1` | URL base da API (inclui `/api/v1`). É pública e vai para o navegador. |
+| `NEXT_PUBLIC_MAP_STYLE_URL` | — (OpenFreeMap) | Estilo MapLibre do mapa. Vazio usa `https://tiles.openfreemap.org/styles/positron`; `off` desativa o mapa. |
 
-## Learn More
+Nenhuma chave de Stripe, Anthropic ou Resend existe no frontend: pagamentos, IA e e-mail acontecem só no backend.
+A busca de locais (autocomplete) passa pelo backend; o navegador não usa nenhuma chave de mapa.
 
-To learn more about Next.js, take a look at the following resources:
+### Mapa do dia
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **MapLibre GL JS 6** renderizado só no cliente (`next/dynamic` com `ssr: false`, em `components/map/`). O worker do
+  MapLibre é copiado para `public/vendor/` por `scripts/copy-maplibre-worker.mjs` (roda em `predev`/`prebuild`).
+- Tiles: [OpenFreeMap](https://openfreemap.org) (estilo `positron`), vetoriais do OpenStreetMap, sem chave, sem cadastro e
+  sem limite de visualizações (uso comercial permitido). Não há SLA — o projeto é mantido por doações; se o serviço
+  falhar, o painel mostra o erro com "Tentar novamente" e a lista continua. Para trocar (ex.: tiles próprios em
+  PMTiles), defina `NEXT_PUBLIC_MAP_STYLE_URL`. Atribuições (© OpenMapTiles, © OpenStreetMap) vêm no estilo.
+- Campo "Local": a seção "Nesta viagem" sugere os lugares já escolhidos em outras atividades (sem chamar a API); a
+  busca externa passa pelo backend, que guarda as respostas em cache no banco (ver `backend/README.md`).
+- Marcadores numerados pela ordem das atividades do dia (a numeração conta também as que não têm local, para bater com
+  a lista); atividades no mesmo ponto viram um marcador com todos os itens no balão (título, horário, endereço,
+  "Abrir no Google Maps", "Ver na lista").
+- Enquadra todos os pontos ao trocar de dia; um ponto usa zoom de rua; sem pontos, centraliza no destino confirmado.
+  Mudanças no mesmo dia só reenquadram se a pessoa não moveu o mapa; "Ver todos os locais" reenquadra a pedido.
+- Não há rotas nem distâncias: nenhuma linha liga os pontos (roteamento fica para outra etapa).
+- O mapa só é montado quando o painel fica visível (aba "Mapa" no celular, painel aberto no desktop) e acompanha o
+  tamanho do contêiner (abrir painel, "Ampliar", rotação).
+- O exemplo da landing page continua com o mapa ilustrativo em SVG (`components/landing/illustrative-map.tsx`),
+  identificado como exemplo; o app nunca o usa.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Rotas
 
-## Deploy on Vercel
+| Rota | Tela | Acesso |
+| --- | --- | --- |
+| `/` | Landing page (exemplos ilustrativos) | Público |
+| `/entrar`, `/cadastro` | Login e cadastro (aceitam `?next=` para voltar ao destino) | Público |
+| `/app` | Minhas viagens (próprias e compartilhadas) | Sessão |
+| `/app/viagens/[id]` | Editor do roteiro (respeita o papel: proprietário, editor, leitor) | Sessão |
+| `/app/viagens/[id]/pagamento?pedido=…` | Retorno do Stripe: acompanha a confirmação do pedido | Sessão |
+| `/convites/[token]` | Prévia e aceite de convite | Público (aceite pede login) |
+| `/r/[token]` | Roteiro público somente leitura | Público |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Organização
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+  api/          cliente HTTP único, contratos da API, endpoints e conversão para os tipos das telas
+  state/        provedores (TanStack Query + sessão) e hooks de consulta/invalidação
+  lib/          regras puras: ordem e sobreposição, modo "Durante a viagem", fusos, planos, datas
+  components/   ui/, landing/, auth/, app/, billing/, editor/, trip/
+  data/         fotos (Unsplash) e roteiros de exemplo da landing
+```
+
+- **`api/client.ts`** centraliza URL base, cabeçalhos, formato de erro (`{ code, message, details, requestId }` →
+  `ApiError`) e falhas de rede (`NetworkError`). As telas decidem pelo `code`, nunca pela mensagem.
+- **`api/endpoints.ts`** tem um método por endpoint real de `/api/v1` (ver `/api/docs`). Nenhum endpoint é inventado.
+- **`state/queries.ts`** define as chaves de cache e `invalidateTrip`/`invalidatePlan`, chamadas após cada alteração.
+
+## Sessão
+
+Segue a estratégia do backend:
+
+- O access token fica **só em memória**. O refresh token fica em cookie `httpOnly` da API (`credentials: "include"`
+  apenas em `/auth/*`). Nada de sessão vai para `localStorage` ou `sessionStorage`.
+- A sessão é restaurada com `POST /auth/refresh` ao abrir a área privada, o login ou um convite. A landing e o link
+  público não tocam na sessão.
+- Em `401 UNAUTHENTICATED` há **uma** renovação compartilhada por todas as requisições simultâneas, seguida de uma
+  única repetição, sem laços. Se a renovação devolver 401, a sessão acaba e o login abre com o destino preservado.
+  Já 429 ou 5xx são tratados como falha transitória e mostram "Tentar novamente", sem deslogar.
+- No logout, e quando a sessão expira, o cache de consultas é limpo (o polling também para).
+
+## Regras respeitadas
+
+- Datas (`YYYY-MM-DD`) e horários (`HH:MM`) passam sem conversão; os horários são sempre do fuso da viagem, que é
+  escolhido de forma explícita ao criar ou editar.
+- A ordem vem do backend: horário e depois posição. Reordenar só troca atividades do mesmo horário
+  (`PUT …/activities/order`).
+- Edição e exclusão enviam `version`. Em `VERSION_CONFLICT` o formulário mantém o rascunho, mostra a diferença para a
+  versão atual e deixa a pessoa escolher. Nada é sobrescrito sem confirmação.
+- Alterar as datas da viagem pode devolver `TRIP_DATE_CHANGE_CONFLICT`. Nesse caso os dias e atividades afetados
+  aparecem na tela, e a exclusão só acontece com `confirmRemoveDates` depois de uma escolha explícita.
+- Sem sucesso otimista: cada alteração espera o servidor e recarrega as consultas relacionadas.
+- Planos e limites vêm de `GET /trips/:id/entitlements`. O FREE mostra o uso do dia ("2 de 5 atividades"). Ao
+  atingir o limite, o formulário é preservado e aparecem as opções de upgrade. Convidados não compram; são orientados
+  a falar com o proprietário. Os textos dizem sempre "pagamento único por viagem".
+- Checkout: o servidor cria o pedido e o frontend redireciona para a URL devolvida, com cliques duplicados
+  bloqueados. No retorno, o plano só muda depois que `GET /billing/orders/:id` confirmar. O polling é limitado
+  (2 s, cerca de 1 min) e a pessoa pode consultar de novo. Cancelar o checkout não altera nada localmente.
+- IA: antes de gerar, mostra disponibilidade e uso (`/ai/usage`). Cada pedido leva uma `Idempotency-Key`, reutilizada
+  ao repetir a mesma operação. O polling do trabalho é limitado e para ao concluir, ao fechar o painel ou ao sair.
+  Trabalhos em andamento são reencontrados ao voltar à viagem. Sugestões e ajustes são revisados antes de entrar no
+  roteiro; ajustes que alteram ou removem atividades pedem confirmação. Itens não verificados aparecem marcados.
+- Exportação PNG/PDF usa o roteiro salvo. O mapa é ilustrativo (sem API de mapas).
+
+## Lacunas de contrato (alteração mínima sugerida no backend)
+
+| Lacuna | Como o frontend lida hoje | Alteração mínima |
+| --- | --- | --- |
+| `OrderDto` não expõe `requiresReview` | Deduz a revisão manual por `failureReason` (`paid_without_effect`, `duplicate_payment`, `validation_mismatch:*`) | Incluir `requiresReview: boolean` no `OrderDto` |
+| `AI_MAX_PROMPT_CHARS` e `AI_MAX_DAYS_PER_GENERATION` não aparecem na API | Usa os padrões documentados (500 caracteres, 7 dias) e trata `422` com `details.maxChars`/`maxDays` | Incluir `limits: { maxPromptChars, maxDaysPerGeneration }` em `GET /trips/:id/ai/usage` |
+| `PATCH /trips/:id` não tem `version` | Só o proprietário edita a viagem, então o risco se limita a duas abas dele (vale a última gravação) | Campo `version` na viagem, opcional no `UpdateTripDto`, com `409 VERSION_CONFLICT` |
+| Reduzir datas só exclui dias (não há "mover") | Lista os dias e atividades afetados e pede confirmação; para manter as atividades, a pessoa as move antes (campo "Dia" no formulário) | Opcional: parâmetro para mover as atividades para outro dia na mesma transação |
+
+## Dependências externas pendentes
+
+- **Stripe (modo teste):** sem chaves no backend, o checkout responde `BILLING_UNAVAILABLE` e a interface avisa que
+  nada foi cobrado. Para o fluxo completo, configure as variáveis `STRIPE_*` no backend e a Stripe CLI (veja
+  `backend/README.md`).
+- **E-mail:** em desenvolvimento os convites ficam em `GET /api/v1/dev/outbox`. Para envio real, configure o Resend
+  no backend.
+- **Busca de locais (Geoapify):** sem `GEOAPIFY_API_KEY` no backend, o campo "Local" avisa que a busca está
+  indisponível e salva o texto livre. Configuração e custos: `backend/README.md` → "Localização e mapa". O mapa em si
+  usa OpenFreeMap e não consome créditos.
+- **IA:** em desenvolvimento o backend usa o provedor `mock`. Para respostas reais, configure a chave da Anthropic no
+  backend.
