@@ -1,0 +1,71 @@
+{
+  "name": "boraali-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BoraAli API — roteiros de viagem com colaboração, compartilhamento, pagamentos por viagem e IA",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "start:worker": "node dist/worker.js",
+    "start:dev": "nest start --watch",
+    "lint": "eslint \"{src,test,prisma,scripts}/**/*.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "jest --runInBand",
+    "test:unit": "jest --runInBand --selectProjects unit",
+    "test:e2e": "jest --runInBand --selectProjects e2e",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "db:seed": "ts-node --transpile-only prisma/seed.ts",
+    "stripe:setup": "ts-node --transpile-only scripts/stripe-setup.ts",
+    "ai:eval": "ts-node --transpile-only scripts/ai-eval.ts"
+  },
+  "prisma": {
+    "seed": "ts-node --transpile-only prisma/seed.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@nestjs/common": "^11.2.7",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.2.7",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/platform-express": "^11.2.7",
+    "@nestjs/schedule": "^6.1.3",
+    "@nestjs/swagger": "^11.4.7",
+    "@nestjs/throttler": "^6.7.1",
+    "@prisma/client": "^6.19.3",
+    "argon2": "^0.45.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "cookie-parser": "^1.4.7",
+    "helmet": "^8.3.0",
+    "prisma": "^6.19.3",
+    "reflect-metadata": "^0.2.2",
+    "resend": "^6.32.1",
+    "rxjs": "^7.8.2",
+    "stripe": "^23.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@nestjs/cli": "^11.0.24",
+    "@nestjs/schematics": "^11.1.0",
+    "@nestjs/testing": "^11.2.7",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.20.5",
+    "@types/supertest": "^7.2.1",
+    "eslint": "^9.39.5",
+    "jest": "^30.5.2",
+    "supertest": "^7.3.1",
+    "ts-jest": "^29.4.14",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.9",
+    "typescript-eslint": "^8.71.1"
+  }
+}

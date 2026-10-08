@@ -1,0 +1,434 @@
+// BoraAli — modelo de dados.
+// Convenções:
+// - Timestamps técnicos (createdAt, updatedAt, expiresAt...) são timestamptz em UTC.
+// - Datas de viagem e de dias são DATE (data local do destino, sem fuso).
+// - Horário de atividade é guardado em minutos desde 00:00 no fuso da viagem (startMinutes).
+// - Valores monetários em centavos (Int).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TripPlan {
+  FREE
+  PRO
+  PRO_AI
+}
+
+enum TripRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum ActivityCategory {
+  passeio
+  alimentacao
+  transporte
+  descanso
+  hospedagem
+  outros
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique // sempre normalizado em minúsculas
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  sessions        Session[]
+  ownedTrips      Trip[]           @relation("TripOwner")
+  memberships     TripMember[]
+  invitationsSent Invitation[]     @relation("InvitationInviter")
+  billingCustomer BillingCustomer?
+  orders          Order[]
+  aiJobs          AiJob[]
+}
+
+/// Sessão de login. Guarda apenas o hash do refresh token vigente e do anterior
+/// (para detectar reutilização de um token já rotacionado).
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  refreshTokenHash  String    @unique
+  previousTokenHash String?   @unique
+  expiresAt         DateTime  @db.Timestamptz(3)
+  revokedAt         DateTime? @db.Timestamptz(3)
+  revokedReason     String?
+  lastUsedAt        DateTime  @default(now()) @db.Timestamptz(3)
+  userAgent         String?
+  ipAddress         String?
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Trip {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String   @db.Uuid
+  name        String
+  destination String
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  timeZone    String
+  stay        String?
+  coverUrl    String?
+  plan        TripPlan @default(FREE)
+
+  /// Localização confirmada do destino (orienta buscas e centraliza o mapa).
+  /// Coordenadas sempre em par (CHECK na migração); limpas quando o texto do destino muda.
+  destinationLatitude         Float?
+  destinationLongitude        Float?
+  destinationFormattedAddress String?
+  destinationPlaceId          String?
+  destinationPlaceProvider    String?
+  createdAt                   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime @updatedAt @db.Timestamptz(3)
+
+  owner       User         @relation("TripOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     TripMember[]
+  days        TripDay[]
+  activities  Activity[]
+  invitations Invitation[]
+  shareLink   ShareLink?
+  orders      Order[]
+  aiJobs      AiJob[]
+  aiAttempts  AiAttempt[]
+
+  @@index([ownerId])
+}
+
+/// Papéis são permissões. O proprietário também tem uma linha OWNER aqui,
+/// o que simplifica consultas de acesso.
+model TripMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  tripId    String   @db.Uuid
+  userId    String   @db.Uuid
+  role      TripRole
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, userId])
+  @@index([userId])
+}
+
+model TripDay {
+  id        String   @id @default(uuid()) @db.Uuid
+  tripId    String   @db.Uuid
+  date      DateTime @db.Date
+  title     String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  trip       Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  activities Activity[]
+
+  @@unique([tripId, date])
+}
+
+/// Atividade ("rolê") do roteiro. Ordenação: startMinutes, depois position.
+model Activity {
+  id               String           @id @default(uuid()) @db.Uuid
+  tripId           String           @db.Uuid
+  dayId            String           @db.Uuid
+  title            String
+  startMinutes     Int
+  category         ActivityCategory @default(outros)
+  location         String?
+  durationMinutes  Int?
+  notes            String?
+  /// Lugar selecionado no provedor de geocodificação. Coordenadas sempre em par
+  /// (CHECK na migração); placeId e placeProvider também. Sem coordenadas = só texto.
+  formattedAddress String?
+  latitude         Float?
+  longitude        Float?
+  placeId          String?
+  placeProvider    String?
+  position         Int              @default(0)
+  version          Int              @default(1)
+  createdById      String?          @db.Uuid
+  updatedById      String?          @db.Uuid
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+
+  trip Trip    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  day  TripDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+
+  @@index([dayId, startMinutes, position])
+  @@index([tripId])
+}
+
+enum EmailDeliveryStatus {
+  PENDING // envio pendente ou em andamento
+  PROVIDER_ACCEPTED // aceito pelo provedor (não garante entrega na caixa do destinatário)
+  FAILED // falhou; pode ser reenviado sem criar outro convite
+}
+
+model Invitation {
+  id           String    @id @default(uuid()) @db.Uuid
+  tripId       String    @db.Uuid
+  email        String
+  role         TripRole
+  tokenHash    String    @unique
+  /// Valor aleatório que, com o segredo do servidor, regenera o token (HMAC) para reenvios.
+  /// O token em si nunca é armazenado. Nulo em convites anteriores a este recurso.
+  tokenNonce   String?
+  invitedById  String    @db.Uuid
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  acceptedAt   DateTime? @db.Timestamptz(3)
+  acceptedById String?   @db.Uuid
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  // Entrega do e-mail
+  deliveryStatus        EmailDeliveryStatus @default(PENDING)
+  deliveryProvider      String?
+  /// Intenções de envio (envio inicial + reenvios). Também compõe a chave de idempotência.
+  deliverySeq           Int                 @default(1)
+  /// Chamadas ao provedor (inclui novas tentativas automáticas).
+  deliveryAttempts      Int                 @default(0)
+  lastSendRequestedAt   DateTime?           @db.Timestamptz(3)
+  lastDeliveryAttemptAt DateTime?           @db.Timestamptz(3)
+  providerAcceptedAt    DateTime?           @db.Timestamptz(3)
+  providerMessageId     String?
+  deliveryErrorCode     String?
+
+  trip      Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([tripId, email])
+}
+
+/// Link público somente leitura. O token é uma capacidade de leitura e fica
+/// armazenado para que o proprietário possa recuperar o link; renovar invalida o anterior.
+model ShareLink {
+  id        String   @id @default(uuid()) @db.Uuid
+  tripId    String   @unique @db.Uuid
+  token     String   @unique
+  enabled   Boolean  @default(true)
+  showNotes Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────────── Cobrança ─────────────────────────────
+
+enum BillingProduct {
+  PRO
+  PRO_AI
+  UPGRADE_PRO_AI
+}
+
+enum OrderStatus {
+  CREATED // pedido reservado, sessão Stripe ainda não criada
+  OPEN // sessão de checkout aberta aguardando pagamento
+  PROCESSING // checkout concluído, pagamento assíncrono pendente
+  PAID // pagamento confirmado e benefício aplicado
+  FAILED
+  EXPIRED
+  CANCELED
+  REFUNDED
+  DISPUTED
+}
+
+model BillingCustomer {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @db.Uuid
+  stripeCustomerId String   @unique
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Um pedido por tentativa de compra. Um índice parcial (ver migração) garante
+/// no máximo um pedido ativo (CREATED/OPEN/PROCESSING) por viagem.
+model Order {
+  id                      String         @id @default(uuid()) @db.Uuid
+  /// Nulo se a viagem foi excluída; o pedido é mantido para fins contábeis.
+  tripId                  String?        @db.Uuid
+  buyerId                 String         @db.Uuid
+  product                 BillingProduct
+  targetPlan              TripPlan
+  amount                  Int
+  currency                String
+  status                  OrderStatus    @default(CREATED)
+  stripePriceId           String
+  stripeCheckoutSessionId String?        @unique
+  stripePaymentIntentId   String?        @unique
+  checkoutUrl             String?
+  checkoutExpiresAt       DateTime?      @db.Timestamptz(3)
+  paidAt                  DateTime?      @db.Timestamptz(3)
+  refundedAt              DateTime?      @db.Timestamptz(3)
+  failureReason           String?
+  /// Pagamento confirmado que não alterou o plano (ex.: já havia plano superior). Exige revisão/reembolso manual.
+  requiresReview          Boolean        @default(false)
+  lastSyncedAt            DateTime?      @db.Timestamptz(3)
+  createdAt               DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime       @updatedAt @db.Timestamptz(3)
+
+  trip  Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  buyer User  @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+
+  @@index([tripId, status])
+  @@index([status, updatedAt])
+}
+
+enum WebhookEventStatus {
+  PROCESSING
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+/// Registro de eventos recebidos do Stripe (idempotência e auditoria).
+/// Não guarda o payload completo para evitar persistir dados de pagamento.
+model StripeWebhookEvent {
+  id          String             @id // evt_...
+  type        String
+  objectId    String?
+  status      WebhookEventStatus @default(PROCESSING)
+  attempts    Int                @default(1)
+  lastError   String?
+  receivedAt  DateTime           @default(now()) @db.Timestamptz(3)
+  processedAt DateTime?          @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([status])
+}
+
+// ───────────────────────────── IA ─────────────────────────────
+
+enum AiJobKind {
+  DAY_SUGGESTIONS
+  TRIP_SUGGESTIONS
+  ADJUST_ITINERARY
+}
+
+enum AiJobStatus {
+  QUEUED // reserva ativa
+  RUNNING // reserva ativa
+  SUCCEEDED // uso consumido
+  FAILED // reserva liberada
+}
+
+/// Um trabalho de geração. A cota da viagem é derivada destes registros:
+/// usados = SUCCEEDED, reservados = QUEUED + RUNNING; FAILED não conta.
+model AiJob {
+  id             String      @id @default(uuid()) @db.Uuid
+  tripId         String      @db.Uuid
+  requestedById  String      @db.Uuid
+  kind           AiJobKind
+  status         AiJobStatus @default(QUEUED)
+  idempotencyKey String
+  input          Json
+  result         Json?
+  errorCode      String?
+  errorMessage   String?
+  provider       String?
+  model          String?
+  inputTokens    Int?
+  outputTokens   Int?
+  attempts       Int         @default(0)
+  lockedUntil    DateTime?   @db.Timestamptz(3)
+  startedAt      DateTime?   @db.Timestamptz(3)
+  finishedAt     DateTime?   @db.Timestamptz(3)
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+
+  trip        Trip        @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  requestedBy User        @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+  aiAttempts  AiAttempt[]
+
+  @@unique([tripId, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([tripId, kind, status])
+}
+
+enum AiAttemptStatus {
+  RESERVED // orçamento reservado, chamada em andamento
+  SUCCEEDED
+  REFUSED // recusa do modelo (stop_reason "refusal"); nunca repetida
+  TRUNCATED // limite de tokens de saída atingido
+  INVALID_OUTPUT
+  TRANSIENT_ERROR // erro transitório (pode ter nova tentativa)
+  ERROR // erro definitivo
+  ABANDONED // worker caiu durante a chamada
+}
+
+enum AiCostStatus {
+  RESERVED // chamada em andamento: conta o valor reservado
+  ESTIMATED // custo calculado a partir do uso informado pelo provedor
+  UNKNOWN // sem dados de uso: o valor reservado continua contando no orçamento
+}
+
+/// Uma chamada ao provedor de IA. Registro de custo permanente: continua mesmo
+/// quando o trabalho falha (falha não significa custo zero).
+/// Custos em micro-unidades da moeda de preços (1 USD = 1.000.000).
+model AiAttempt {
+  id                       String          @id @default(uuid()) @db.Uuid
+  /// Nulos se a viagem for excluída: o registro de custo é mantido para contabilidade.
+  jobId                    String?         @db.Uuid
+  tripId                   String?         @db.Uuid
+  callIndex                Int // bloco de dias dentro do trabalho
+  attemptNumber            Int // tentativa dentro do bloco (1 = primeira)
+  provider                 String
+  requestedModel           String
+  model                    String? // modelo efetivamente usado, informado pelo provedor
+  status                   AiAttemptStatus @default(RESERVED)
+  inputTokens              Int?
+  outputTokens             Int?
+  cacheCreationInputTokens Int?
+  cacheReadInputTokens     Int?
+  durationMs               Int?
+  reservedCostMicros       Int
+  costMicros               Int?
+  costStatus               AiCostStatus    @default(RESERVED)
+  currency                 String
+  pricingReferenceDate     String
+  errorCode                String?
+  refusalCategory          String?
+  providerRequestId        String?
+  createdAt                DateTime        @default(now()) @db.Timestamptz(3)
+  finishedAt               DateTime?       @db.Timestamptz(3)
+
+  job  AiJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  trip Trip?  @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, callIndex, attemptNumber])
+  @@index([tripId])
+}
+
+// ───────────────────────────── Localização ─────────────────────────────
+
+/// Cache persistente das buscas de lugares (autocomplete). Uma linha por consulta normalizada:
+/// guarda a resposta do provedor como veio (até 8 resultados), sem vínculo com usuário ou viagem.
+/// Permitido pelos termos da Geoapify (armazenamento de resultados com atribuição).
+model PlaceSearchCache {
+  id        String    @id @default(uuid()) @db.Uuid
+  /// provedor|tipo|idioma|região|texto normalizado
+  key       String    @unique
+  provider  String
+  kind      String
+  query     String
+  results   Json
+  hits      Int       @default(0)
+  lastHitAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime  @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}
