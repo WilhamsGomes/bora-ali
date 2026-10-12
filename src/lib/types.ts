@@ -2,9 +2,9 @@
  * Tipos de domínio usados pelas telas. Os dados autenticados vêm da API
  * (src/api) e são convertidos para estes formatos em src/api/mappers.ts.
  */
-import type { ApiCategory, PlaceProvider, Plan, Role } from "@/api/contracts";
+import type { ApiCategory, PlaceProvider, Role } from "@/api/contracts";
 
-export type { Plan, Role };
+export type { Role };
 
 export type Category = ApiCategory;
 
@@ -57,7 +57,7 @@ export interface DayContent<A extends ActivityContent = ActivityContent> {
 }
 
 export interface TripDay extends DayContent<Activity> {
-  /** O plano ainda permite adicionar atividades neste dia */
+  /** O dia ainda está abaixo do limite de atividades */
   canAddActivities: boolean;
 }
 
@@ -73,7 +73,6 @@ export interface Trip {
   coverUrl: string | null;
   stay?: string;
   destinationPlace: DestinationPlace | null;
-  plan: Plan;
   /** Papel do usuário atual nesta viagem */
   role: Role;
   updatedAt: string;
@@ -90,12 +89,9 @@ export interface TripSummary {
   endDate: string;
   coverUrl: string | null;
   stay?: string;
-  plan: Plan;
   role: Role;
   dayCount: number;
   activityCount: number;
-  /** false quando o acesso de convidado está suspenso pelo plano da viagem */
-  accessible: boolean;
 }
 
 /** Roteiro de exemplo da landing page (dados ilustrativos, não vêm da API). */

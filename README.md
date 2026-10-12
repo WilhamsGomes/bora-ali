@@ -1,8 +1,10 @@
 # BoraAli — frontend
 
-Interface do BoraAli: roteiros de viagem dia a dia, colaboração, link público, pagamento único por viagem e
-sugestões com IA. Consome a API do diretório `backend/` (NestJS). Os únicos dados ilustrativos estão na landing
-page e aparecem marcados como exemplo.
+Interface do BoraAli: roteiros de viagem dia a dia, colaboração, link público e sugestões com IA. Consome a API do
+diretório `backend/` (NestJS). Os únicos dados ilustrativos estão na landing page e aparecem marcados como exemplo.
+
+> **v1 (validação, branch `v1-sem-planos`):** sem planos nem compra. Todas as viagens têm colaboração, link público e
+> IA, e cada dia aceita até 10 atividades. Telas e componentes de pagamento foram removidos.
 
 **Stack:** Next.js 16 (App Router, Cache Components) · React 19 · TypeScript · Tailwind CSS 4 · TanStack Query 5 ·
 lucide-react · html-to-image (PNG).
@@ -27,7 +29,7 @@ Produção: `npm run build && npm start`. Checks: `npx tsc --noEmit`, `npm run l
 | `NEXT_PUBLIC_API_URL` | `http://localhost:3333/api/v1` | URL base da API (inclui `/api/v1`). É pública e vai para o navegador. |
 | `NEXT_PUBLIC_MAP_STYLE_URL` | — (OpenFreeMap) | Estilo MapLibre do mapa. Vazio usa `https://tiles.openfreemap.org/styles/positron`; `off` desativa o mapa. |
 
-Nenhuma chave de Stripe, Anthropic ou Resend existe no frontend: pagamentos, IA e e-mail acontecem só no backend.
+Nenhuma chave de Anthropic ou Resend existe no frontend: IA e e-mail acontecem só no backend.
 A busca de locais (autocomplete) passa pelo backend; o navegador não usa nenhuma chave de mapa.
 
 ### Mapa do dia
@@ -59,7 +61,6 @@ A busca de locais (autocomplete) passa pelo backend; o navegador não usa nenhum
 | `/entrar`, `/cadastro` | Login e cadastro (aceitam `?next=` para voltar ao destino) | Público |
 | `/app` | Minhas viagens (próprias e compartilhadas) | Sessão |
 | `/app/viagens/[id]` | Editor do roteiro (respeita o papel: proprietário, editor, leitor) | Sessão |
-| `/app/viagens/[id]/pagamento?pedido=…` | Retorno do Stripe: acompanha a confirmação do pedido | Sessão |
 | `/convites/[token]` | Prévia e aceite de convite | Público (aceite pede login) |
 | `/r/[token]` | Roteiro público somente leitura | Público |
 
@@ -69,8 +70,8 @@ A busca de locais (autocomplete) passa pelo backend; o navegador não usa nenhum
 src/
   api/          cliente HTTP único, contratos da API, endpoints e conversão para os tipos das telas
   state/        provedores (TanStack Query + sessão) e hooks de consulta/invalidação
-  lib/          regras puras: ordem e sobreposição, modo "Durante a viagem", fusos, planos, datas
-  components/   ui/, landing/, auth/, app/, billing/, editor/, trip/
+  lib/          regras puras: ordem e sobreposição, modo "Durante a viagem", fusos, limites, datas
+  components/   ui/, landing/, auth/, app/, editor/, trip/, map/, location/
   data/         fotos (Unsplash) e roteiros de exemplo da landing
 ```
 
@@ -103,12 +104,8 @@ Segue a estratégia do backend:
 - Alterar as datas da viagem pode devolver `TRIP_DATE_CHANGE_CONFLICT`. Nesse caso os dias e atividades afetados
   aparecem na tela, e a exclusão só acontece com `confirmRemoveDates` depois de uma escolha explícita.
 - Sem sucesso otimista: cada alteração espera o servidor e recarrega as consultas relacionadas.
-- Planos e limites vêm de `GET /trips/:id/entitlements`. O FREE mostra o uso do dia ("2 de 5 atividades"). Ao
-  atingir o limite, o formulário é preservado e aparecem as opções de upgrade. Convidados não compram; são orientados
-  a falar com o proprietário. Os textos dizem sempre "pagamento único por viagem".
-- Checkout: o servidor cria o pedido e o frontend redireciona para a URL devolvida, com cliques duplicados
-  bloqueados. No retorno, o plano só muda depois que `GET /billing/orders/:id` confirmar. O polling é limitado
-  (2 s, cerca de 1 min) e a pessoa pode consultar de novo. Cancelar o checkout não altera nada localmente.
+- O limite de atividades por dia (10) vem de `GET /trips/:id/entitlements`. Ao atingir o limite, o formulário é
+  preservado e orienta a escolher outro dia ou remover uma atividade.
 - IA: antes de gerar, mostra disponibilidade e uso (`/ai/usage`). Cada pedido leva uma `Idempotency-Key`, reutilizada
   ao repetir a mesma operação. O polling do trabalho é limitado e para ao concluir, ao fechar o painel ou ao sair.
   Trabalhos em andamento são reencontrados ao voltar à viagem. Sugestões e ajustes são revisados antes de entrar no
@@ -119,16 +116,12 @@ Segue a estratégia do backend:
 
 | Lacuna | Como o frontend lida hoje | Alteração mínima |
 | --- | --- | --- |
-| `OrderDto` não expõe `requiresReview` | Deduz a revisão manual por `failureReason` (`paid_without_effect`, `duplicate_payment`, `validation_mismatch:*`) | Incluir `requiresReview: boolean` no `OrderDto` |
 | `AI_MAX_PROMPT_CHARS` e `AI_MAX_DAYS_PER_GENERATION` não aparecem na API | Usa os padrões documentados (500 caracteres, 7 dias) e trata `422` com `details.maxChars`/`maxDays` | Incluir `limits: { maxPromptChars, maxDaysPerGeneration }` em `GET /trips/:id/ai/usage` |
 | `PATCH /trips/:id` não tem `version` | Só o proprietário edita a viagem, então o risco se limita a duas abas dele (vale a última gravação) | Campo `version` na viagem, opcional no `UpdateTripDto`, com `409 VERSION_CONFLICT` |
 | Reduzir datas só exclui dias (não há "mover") | Lista os dias e atividades afetados e pede confirmação; para manter as atividades, a pessoa as move antes (campo "Dia" no formulário) | Opcional: parâmetro para mover as atividades para outro dia na mesma transação |
 
 ## Dependências externas pendentes
 
-- **Stripe (modo teste):** sem chaves no backend, o checkout responde `BILLING_UNAVAILABLE` e a interface avisa que
-  nada foi cobrado. Para o fluxo completo, configure as variáveis `STRIPE_*` no backend e a Stripe CLI (veja
-  `backend/README.md`).
 - **E-mail:** em desenvolvimento os convites ficam em `GET /api/v1/dev/outbox`. Para envio real, configure o Resend
   no backend.
 - **Busca de locais (Geoapify):** sem `GEOAPIFY_API_KEY` no backend, o campo "Local" avisa que a busca está

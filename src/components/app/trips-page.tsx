@@ -43,7 +43,7 @@ export function TripsPage() {
   const trips = query.data ? [...query.data].sort(byUpcoming(today)) : null;
   const owned = trips?.filter((t) => t.role === "OWNER") ?? [];
   const shared = trips?.filter((t) => t.role !== "OWNER") ?? [];
-  const featured = owned.find((t) => t.accessible) ?? null;
+  const featured = owned[0] ?? null;
   const rest = owned.filter((t) => t.id !== featured?.id);
 
   return (

@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarPlus,
   Compass,
-  Crown,
   Info,
   ListOrdered,
   Lock,
@@ -16,24 +15,21 @@ import {
   RefreshCw,
   Sparkles,
   TriangleAlert,
-  X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, isApiError } from "@/api/client";
 import { aiApi, itineraryApi } from "@/api/endpoints";
 import { toActivityInput, toDay } from "@/api/mappers";
-import { UpgradePanel } from "@/components/billing/upgrade-panel";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { moveOptions, overlapMap, swapSameTime } from "@/lib/activities";
 import { isActiveJob } from "@/lib/ai-options";
 import { daysBetween, longDate, longDateTitle, toMinutes } from "@/lib/dates";
 import { plural } from "@/lib/format";
 import { computeLive } from "@/lib/live";
-import { planLabels, roleLabels } from "@/lib/plans";
+import { MAX_ACTIVITIES_PER_DAY } from "@/lib/limits";
+import { roleLabels } from "@/lib/roles";
 import { nowInTimeZone, offsetLabel, timeZoneLabel } from "@/lib/time-zones";
 import type { Activity, Trip } from "@/lib/types";
 import { useClientNow } from "@/lib/use-client-now";
@@ -59,7 +55,6 @@ type Dialog =
   | { kind: "people" }
   | { kind: "export" }
   | { kind: "trip" }
-  | { kind: "plan" }
   | null;
 
 const PANEL_ID = "painel-dia";
@@ -71,9 +66,6 @@ export function TripEditor({ tripId }: { tripId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const now = useClientNow();
-  const params = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<"roteiro" | "mapa">("roteiro");
@@ -89,8 +81,6 @@ export function TripEditor({ tripId }: { tripId: string }) {
   const [simMinutes, setSimMinutes] = useState(17 * 60 + 15);
   /** Atividades com alteração em andamento (botões desabilitados) */
   const [pending, setPending] = useState<Set<string>>(new Set());
-  const [paymentCanceled] = useState(() => params.get("pagamento") === "cancelado");
-  const [showCanceled, setShowCanceled] = useState(paymentCanceled);
   /** Atividade que deve receber foco e ficar visível depois do próximo render */
   const focusAfterRender = useRef<{ id: string; button: string } | null>(null);
 
@@ -99,17 +89,10 @@ export function TripEditor({ tripId }: { tripId: string }) {
   const jobs = useQuery({
     queryKey: keys.aiJobs(tripId),
     queryFn: () => aiApi.jobs(tripId),
-    enabled: !!ai?.enabled,
+    enabled: !!ai,
     staleTime: 30_000,
   });
   const activeJob = jobs.data?.find(isActiveJob);
-
-  useEffect(() => {
-    if (!paymentCanceled) return;
-    // Volta do checkout sem pagar: nada muda localmente; o estado real vem do servidor
-    void qc.invalidateQueries({ queryKey: keys.entitlements(tripId) });
-    router.replace(pathname, { scroll: false });
-  }, [paymentCanceled, qc, tripId, router, pathname]);
 
   useEffect(() => {
     const target = focusAfterRender.current;
@@ -127,7 +110,6 @@ export function TripEditor({ tripId }: { tripId: string }) {
   if (query.isPending) return <EditorSkeleton />;
   if (!query.data) {
     if (isApiError(query.error, "TRIP_NOT_FOUND") || isApiError(query.error, "NOT_FOUND")) return <TripNotFound />;
-    if (isApiError(query.error, "TRIP_UPGRADE_REQUIRED")) return <AccessSuspended message={query.error.message} />;
     return <EditorError message={errorMessage(query.error)} onRetry={() => void query.refetch()} retrying={query.isFetching} />;
   }
 
@@ -135,7 +117,6 @@ export function TripEditor({ tripId }: { tripId: string }) {
   const ent = entitlements.data;
   const canEdit = trip.role !== "VIEWER";
   const isOwner = trip.role === "OWNER";
-  const ownerName = members.data?.find((m) => m.role === "OWNER")?.name;
   const day = trip.days.find((d) => d.id === selectedDayId) ?? trip.days[0];
   if (!day) return <EditorError message="Esta viagem ainda não tem dias." onRetry={() => void query.refetch()} retrying={false} />;
   const activities = day.activities;
@@ -235,7 +216,7 @@ export function TripEditor({ tripId }: { tripId: string }) {
       action: {
         label: "Desfazer",
         onClick: () => {
-          // Recria com o mesmo conteúdo (o servidor confere o limite do plano de novo)
+          // Recria com o mesmo conteúdo (o servidor confere o limite do dia de novo)
           itineraryApi.createActivity(trip.id, activity.dayId, toActivityInput(activity)).then(
             async (r) => {
               await refresh();
@@ -245,7 +226,7 @@ export function TripEditor({ tripId }: { tripId: string }) {
             (e) =>
               toast.show(
                 isApiError(e, "DAILY_ACTIVITY_LIMIT_REACHED")
-                  ? "Não deu para restaurar: o dia atingiu o limite do plano."
+                  ? "Não deu para restaurar: o dia atingiu o limite de atividades."
                   : errorMessage(e, "Não foi possível restaurar a atividade."),
                 { tone: "error" },
               ),
@@ -302,23 +283,8 @@ export function TripEditor({ tripId }: { tripId: string }) {
     }
   }
 
-  const upgrade = (reason: React.ReactNode) =>
-    ent ? <UpgradePanel tripId={trip.id} entitlements={ent} ownerName={ownerName} reason={reason} /> : null;
-
   return (
     <main className={cn("mx-auto w-full max-w-6xl flex-1 px-4 pt-4 sm:px-6 sm:pt-6 lg:pb-16", canEdit ? "pb-28" : "pb-16")}>
-      {showCanceled && (
-        <div role="status" className="mb-4 flex items-start gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-sm">
-          <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-forest" />
-          <p className="flex-1">
-            Pagamento não concluído. Nada foi cobrado por este checkout e o plano continua{" "}
-            {ent ? planLabels[ent.plan] : "o mesmo"}. Você pode tentar de novo quando quiser.
-          </p>
-          <button type="button" onClick={() => setShowCanceled(false)} aria-label="Fechar aviso" className="rounded-full p-1 text-ink-soft hover:bg-forest/5">
-            <X aria-hidden className="size-4" />
-          </button>
-        </div>
-      )}
       {query.isError && (
         <p role="status" className="mb-4 flex items-center gap-2 rounded-2xl bg-[#fbf2df] px-4 py-2.5 text-sm text-[#5c430c]">
           <TriangleAlert aria-hidden className="size-4 shrink-0" />
@@ -355,19 +321,6 @@ export function TripEditor({ tripId }: { tripId: string }) {
           )}
         >
           <Radio aria-hidden className="size-4" /> Durante a viagem
-        </button>
-        <button
-          type="button"
-          onClick={() => setDialog({ kind: "plan" })}
-          className="inline-flex h-11 items-center gap-2 rounded-full border border-line bg-white px-4 text-sm font-semibold text-forest transition hover:border-forest/40 sm:ml-auto"
-        >
-          <Crown aria-hidden className="size-4 text-coral-700" />
-          {ent ? `Plano ${planLabels[ent.plan]}` : "Plano"}
-          {limit !== null && (
-            <span className="font-medium text-ink-soft">
-              · {Math.min(activities.length, limit)} de {limit} atividades
-            </span>
-          )}
         </button>
         {!canEdit && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-cream-200 px-3 py-1.5 text-xs font-semibold text-ink-soft">
@@ -447,11 +400,8 @@ export function TripEditor({ tripId }: { tripId: string }) {
             <p className="mt-3 flex items-start gap-2 rounded-xl bg-[#fbf2df] px-3 py-2 text-sm text-[#5c430c]">
               <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
               <span>
-                Este dia chegou ao limite do plano {ent ? planLabels[ent.plan] : "atual"}
-                {limit !== null ? ` (${limit} atividades)` : ""}. Você ainda pode editar e excluir.{" "}
-                <button type="button" className="font-semibold underline" onClick={() => setDialog({ kind: "plan" })}>
-                  Ver planos
-                </button>
+                Este dia chegou ao limite de {limit ?? MAX_ACTIVITIES_PER_DAY} atividades. Você ainda pode editar, mover e
+                excluir.
               </span>
             </p>
           )}
@@ -610,7 +560,6 @@ export function TripEditor({ tripId }: { tripId: string }) {
         onClose={() => setDialog(null)}
         onSubmit={submitActivity}
         onStale={() => void refresh()}
-        renderUpgrade={upgrade}
       />
       <AiAssistant
         open={dialog?.kind === "ai"}
@@ -621,59 +570,12 @@ export function TripEditor({ tripId }: { tripId: string }) {
         trip={trip}
         dayId={day.id}
         entitlements={ent}
-        ownerName={ownerName}
       />
-      <ShareModal open={dialog?.kind === "share"} onClose={() => setDialog(null)} trip={trip} entitlements={ent} />
-      <ParticipantsModal open={dialog?.kind === "people"} onClose={() => setDialog(null)} trip={trip} entitlements={ent} />
+      <ShareModal open={dialog?.kind === "share"} onClose={() => setDialog(null)} trip={trip} />
+      <ParticipantsModal open={dialog?.kind === "people"} onClose={() => setDialog(null)} trip={trip} />
       <ExportModal open={dialog?.kind === "export"} onClose={() => setDialog(null)} trip={trip} initialDayId={day.id} />
       {isOwner && <EditTripModal open={dialog?.kind === "trip"} trip={trip} onClose={() => setDialog(null)} />}
-      <Modal open={dialog?.kind === "plan"} onClose={() => setDialog(null)} title="Plano da viagem" description="Pagamento único por viagem, sem assinatura.">
-        <PlanSummary trip={trip} dayActivities={activities.length} ownerName={ownerName} upgrade={upgrade} />
-      </Modal>
     </main>
-  );
-}
-
-function PlanSummary({
-  trip,
-  dayActivities,
-  ownerName,
-  upgrade,
-}: {
-  trip: Trip;
-  dayActivities: number;
-  ownerName?: string;
-  upgrade: (reason: React.ReactNode) => React.ReactNode;
-}) {
-  const { data: ent, isError, error } = useEntitlements(trip.id);
-  if (isError && !ent) return <p role="alert" className="text-sm text-[#9b2c1a]">{errorMessage(error)}</p>;
-  if (!ent) return <p className="text-sm text-ink-soft">Carregando plano…</p>;
-  const items = [
-    ent.maxActivitiesPerDay === null ? "Atividades ilimitadas por dia" : `Até ${ent.maxActivitiesPerDay} atividades por dia`,
-    ent.collaboration ? "Convidar pessoas para editar ou ver" : "Sem convidados",
-    ent.publicSharing ? "Link público somente leitura" : "Sem link público",
-    ent.ai.enabled ? "Sugestões e ajustes com IA (uso limitado por viagem)" : "Sem IA",
-    "Exportação em PNG e PDF",
-  ];
-  return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-line bg-white p-4">
-        <p className="font-display text-xl font-bold text-forest">Plano {planLabels[ent.plan]}</p>
-        {ent.maxActivitiesPerDay !== null && (
-          <p className="mt-1 text-sm text-ink">
-            Neste dia: {Math.min(dayActivities, ent.maxActivitiesPerDay)} de {ent.maxActivitiesPerDay} atividades
-          </p>
-        )}
-        <ul className="mt-3 space-y-1 text-sm text-ink-soft">
-          {items.map((i) => (
-            <li key={i}>• {i}</li>
-          ))}
-        </ul>
-      </div>
-      {ent.availableUpgrades.length > 0 || ent.hasPendingOrder
-        ? upgrade(ent.canPurchase ? undefined : `Plano atual definido por ${ownerName ?? "quem criou a viagem"}.`)
-        : <p className="text-sm text-ink-soft">Esta viagem já tem todos os recursos disponíveis.</p>}
-    </div>
   );
 }
 
@@ -747,21 +649,6 @@ function TripNotFound() {
       </span>
       <h1 className="mt-4 font-display text-3xl font-bold text-forest">Viagem não encontrada</h1>
       <p className="mt-2 text-ink-soft">Ela não existe, foi excluída ou você não participa dela.</p>
-      <Link href="/app" className={buttonClasses("primary", "md", "mt-6")}>
-        Ver minhas viagens
-      </Link>
-    </main>
-  );
-}
-
-function AccessSuspended({ message }: { message: string }) {
-  return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center px-6 py-24 text-center">
-      <span className="flex size-14 items-center justify-center rounded-2xl bg-[#fbf2df] text-[#7a5200]">
-        <Lock aria-hidden className="size-7" />
-      </span>
-      <h1 className="mt-4 font-display text-3xl font-bold text-forest">Acesso suspenso</h1>
-      <p className="mt-2 text-ink-soft">{message} Fale com quem criou a viagem.</p>
       <Link href="/app" className={buttonClasses("primary", "md", "mt-6")}>
         Ver minhas viagens
       </Link>

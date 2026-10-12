@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { isApiError } from "@/api/client";
-import { aiApi, billingApi, invitationsApi, membersApi, sharingApi, tripsApi } from "@/api/endpoints";
+import { aiApi, invitationsApi, membersApi, sharingApi, tripsApi } from "@/api/endpoints";
 import { toTrip, toTripSummary } from "@/api/mappers";
 import { useAuth } from "./providers";
 
@@ -15,8 +15,6 @@ export const keys = {
   members: (id: string) => ["members", id] as const,
   invitations: (id: string) => ["invitations", id] as const,
   share: (id: string) => ["share", id] as const,
-  orders: (id: string) => ["orders", id] as const,
-  order: (orderId: string) => ["order", orderId] as const,
   aiUsage: (id: string) => ["ai-usage", id] as const,
   aiJobs: (id: string) => ["ai-jobs", id] as const,
   aiJob: (id: string, jobId: string) => ["ai-job", id, jobId] as const,
@@ -64,31 +62,17 @@ export function useShareLink(id: string, enabled: boolean) {
   return useQuery({ queryKey: keys.share(id), queryFn: () => sharingApi.get(id), enabled: useSignedIn() && enabled });
 }
 
-export function useTripOrders(id: string, enabled: boolean) {
-  return useQuery({ queryKey: keys.orders(id), queryFn: () => billingApi.tripOrders(id), enabled: useSignedIn() && enabled });
-}
-
 export function useAiUsage(id: string, enabled: boolean) {
   return useQuery({ queryKey: keys.aiUsage(id), queryFn: () => aiApi.usage(id), enabled: useSignedIn() && enabled });
 }
 
-/** Recarrega a viagem e tudo que depende do roteiro ou do plano. */
+/** Recarrega a viagem e tudo que depende do roteiro. */
 export function invalidateTrip(qc: QueryClient, id: string) {
   return Promise.all([
     qc.invalidateQueries({ queryKey: keys.trip(id) }),
     qc.invalidateQueries({ queryKey: keys.trips }),
     qc.invalidateQueries({ queryKey: keys.entitlements(id) }),
     qc.invalidateQueries({ queryKey: keys.aiUsage(id) }),
-  ]);
-}
-
-/** Depois de uma mudança de plano (pagamento confirmado): viagem, benefícios, pedidos, link e convites. */
-export function invalidatePlan(qc: QueryClient, id: string) {
-  return Promise.all([
-    invalidateTrip(qc, id),
-    qc.invalidateQueries({ queryKey: keys.orders(id) }),
-    qc.invalidateQueries({ queryKey: keys.share(id) }),
-    qc.invalidateQueries({ queryKey: keys.invitations(id) }),
   ]);
 }
 

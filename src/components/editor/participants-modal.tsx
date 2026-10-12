@@ -5,15 +5,14 @@ import { CircleCheck, Clock, LoaderCircle, LogOut, MailX, Send, TriangleAlert, U
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { errorMessage, isApiError } from "@/api/client";
-import type { EntitlementsDto, InvitationDto, MemberDto, Role } from "@/api/contracts";
+import type { InvitationDto, MemberDto, Role } from "@/api/contracts";
 import { invitationsApi, membersApi } from "@/api/endpoints";
-import { UpgradePanel } from "@/components/billing/upgrade-panel";
 import { Avatar } from "@/components/ui/avatars";
 import { Button } from "@/components/ui/button";
 import { Field, inputClasses } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
-import { roleLabels } from "@/lib/plans";
+import { roleLabels } from "@/lib/roles";
 import type { Trip } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/state/providers";
@@ -26,13 +25,12 @@ interface ParticipantsModalProps {
   open: boolean;
   onClose: () => void;
   trip: Trip;
-  entitlements: EntitlementsDto | undefined;
 }
 
-export function ParticipantsModal({ open, onClose, trip, entitlements }: ParticipantsModalProps) {
+export function ParticipantsModal({ open, onClose, trip }: ParticipantsModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Participantes" description="Quem pode ver e editar este roteiro.">
-      <ParticipantsBody trip={trip} entitlements={entitlements} onClose={onClose} />
+      <ParticipantsBody trip={trip} onClose={onClose} />
     </Modal>
   );
 }
@@ -40,7 +38,7 @@ export function ParticipantsModal({ open, onClose, trip, entitlements }: Partici
 const dateTime = (iso: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
-function ParticipantsBody({ trip, entitlements, onClose }: Omit<ParticipantsModalProps, "open">) {
+function ParticipantsBody({ trip, onClose }: Omit<ParticipantsModalProps, "open">) {
   const { state } = useAuth();
   const me = state.status === "authenticated" ? state.user.id : null;
   const isOwner = trip.role === "OWNER";
@@ -80,15 +78,8 @@ function ParticipantsBody({ trip, entitlements, onClose }: Omit<ParticipantsModa
         )}
       </section>
 
-      {isOwner && entitlements && !entitlements.collaboration && (
-        <UpgradePanel
-          tripId={trip.id}
-          entitlements={entitlements}
-          reason="Convidar pessoas para editar ou ver o roteiro faz parte dos planos PRO e PRO + IA."
-        />
-      )}
 
-      {isOwner && entitlements?.collaboration && (
+      {isOwner && (
         <>
           <InviteForm tripId={trip.id} />
           <section aria-labelledby="titulo-convites">

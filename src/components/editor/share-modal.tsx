@@ -1,12 +1,11 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, ExternalLink, Info, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import { Check, Copy, ExternalLink, Info, LoaderCircle, RefreshCw } from "lucide-react";
 import { useRef, useState } from "react";
 import { errorMessage } from "@/api/client";
-import type { EntitlementsDto, ShareLinkDto } from "@/api/contracts";
+import type { ShareLinkDto } from "@/api/contracts";
 import { sharingApi } from "@/api/endpoints";
-import { UpgradePanel } from "@/components/billing/upgrade-panel";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { inputClasses } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
@@ -19,18 +18,17 @@ interface ShareModalProps {
   open: boolean;
   onClose: () => void;
   trip: Trip;
-  entitlements: EntitlementsDto | undefined;
 }
 
-export function ShareModal({ open, onClose, trip, entitlements }: ShareModalProps) {
+export function ShareModal({ open, onClose, trip }: ShareModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Link público" description="Quem tiver o link vê o roteiro, sem editar e sem entrar.">
-      <ShareBody trip={trip} entitlements={entitlements} />
+      <ShareBody trip={trip} />
     </Modal>
   );
 }
 
-function ShareBody({ trip, entitlements }: { trip: Trip; entitlements: EntitlementsDto | undefined }) {
+function ShareBody({ trip }: { trip: Trip }) {
   const qc = useQueryClient();
   const toast = useToast();
   const query = useShareLink(trip.id, true);
@@ -45,7 +43,6 @@ function ShareBody({ trip, entitlements }: { trip: Trip; entitlements: Entitleme
     } catch (e) {
       toast.show(errorMessage(e), { tone: "error" });
       void qc.invalidateQueries({ queryKey: keys.share(trip.id) });
-      void qc.invalidateQueries({ queryKey: keys.entitlements(trip.id) });
     }
     setBusy(null);
     setConfirmRotate(false);
@@ -64,49 +61,33 @@ function ShareBody({ trip, entitlements }: { trip: Trip; entitlements: Entitleme
   }
 
   const link = query.data;
-  const allowed = entitlements?.publicSharing ?? false;
 
   return (
     <div className="space-y-5">
-      {!allowed && entitlements && (
-        <UpgradePanel
-          tripId={trip.id}
-          entitlements={entitlements}
-          reason="O link público somente leitura faz parte dos planos PRO e PRO + IA."
+
+      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-4">
+        <input
+          type="checkbox"
+          className="mt-1 size-4 accent-forest"
+          checked={link.enabled}
+          disabled={busy !== null}
+          onChange={(e) =>
+            void run(
+              "toggle",
+              () => sharingApi.update(trip.id, { enabled: e.target.checked, showNotes: link.showNotes }),
+              e.target.checked ? "Link público ativado" : "Link público desativado",
+            )
+          }
         />
-      )}
-
-      {(allowed || link.enabled) && (
-        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-4">
-          <input
-            type="checkbox"
-            className="mt-1 size-4 accent-forest"
-            checked={link.enabled}
-            disabled={busy !== null || (!allowed && !link.enabled)}
-            onChange={(e) =>
-              void run(
-                "toggle",
-                () => sharingApi.update(trip.id, { enabled: e.target.checked, showNotes: link.showNotes }),
-                e.target.checked ? "Link público ativado" : "Link público desativado",
-              )
-            }
-          />
-          <span className="flex-1">
-            <span className="block text-sm font-semibold text-ink">Permitir acesso pelo link</span>
-            <span className="block text-xs text-ink-soft">
-              Desativado, o link para de funcionar na hora. Você pode reativar depois com o mesmo endereço.
-            </span>
+        <span className="flex-1">
+          <span className="block text-sm font-semibold text-ink">Permitir acesso pelo link</span>
+          <span className="block text-xs text-ink-soft">
+            Desativado, o link para de funcionar na hora. Você pode reativar depois com o mesmo endereço.
           </span>
-          {busy === "toggle" && <LoaderCircle aria-hidden className="size-4 animate-spin text-forest" />}
-        </label>
-      )}
+        </span>
+        {busy === "toggle" && <LoaderCircle aria-hidden className="size-4 animate-spin text-forest" />}
+      </label>
 
-      {link.enabled && !link.active && (
-        <p className="flex items-start gap-2 rounded-xl bg-[#fbf2df] px-3 py-2 text-sm text-[#5c430c]">
-          <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />O link está configurado, mas não responde porque o
-          plano atual da viagem não inclui compartilhamento.
-        </p>
-      )}
 
       {link.enabled && link.url && (
         <>
@@ -123,7 +104,7 @@ function ShareBody({ trip, entitlements }: { trip: Trip; entitlements: Entitleme
               type="checkbox"
               className="mt-1 size-4 accent-forest"
               checked={link.showNotes}
-              disabled={busy !== null || !allowed}
+              disabled={busy !== null}
               onChange={(e) =>
                 void run(
                   "notes",
@@ -163,7 +144,7 @@ function ShareBody({ trip, entitlements }: { trip: Trip; entitlements: Entitleme
                 </Button>
               </div>
             ) : (
-              <Button size="sm" variant="secondary" className="mt-3" disabled={busy !== null || !allowed} onClick={() => setConfirmRotate(true)}>
+              <Button size="sm" variant="secondary" className="mt-3" disabled={busy !== null} onClick={() => setConfirmRotate(true)}>
                 <RefreshCw aria-hidden className="size-4" /> Renovar link
               </Button>
             )}

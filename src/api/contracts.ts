@@ -4,9 +4,7 @@
  */
 
 export type ApiCategory = "passeio" | "alimentacao" | "transporte" | "descanso" | "hospedagem" | "outros";
-export type Plan = "FREE" | "PRO" | "PRO_AI";
 export type Role = "OWNER" | "EDITOR" | "VIEWER";
-export type Product = "PRO" | "PRO_AI" | "UPGRADE_PRO_AI";
 
 export interface ApiErrorBody {
   code: string;
@@ -77,7 +75,6 @@ export interface TripBaseDto {
   stay: string | null;
   coverUrl: string | null;
   destinationPlace: DestinationPlaceDto | null;
-  plan: Plan;
   role: Role;
   createdAt: string;
   updatedAt: string;
@@ -87,7 +84,6 @@ export interface TripSummaryDto extends TripBaseDto {
   dayCount: number;
   activityCount: number;
   ownerName: string;
-  accessible: boolean;
 }
 
 export interface TripDetailDto extends TripBaseDto {
@@ -188,14 +184,7 @@ export interface BatchCreateResultDto {
   warnings: OverlapWarningDto[];
 }
 
-/* Planos */
-
-export interface UpgradeOptionDto {
-  plan: Plan;
-  product: Product;
-  amount: number;
-  currency: string;
-}
+/* Limites e IA */
 
 export type AiKind = "DAY_SUGGESTIONS" | "TRIP_SUGGESTIONS" | "ADJUST_ITINERARY";
 
@@ -207,7 +196,6 @@ export interface AiKindUsageDto {
 }
 
 export interface AiEntitlementDto {
-  enabled: boolean;
   available: boolean;
   unavailableReason?: "PROVIDER_NOT_CONFIGURED" | "AI_BUDGET_EXHAUSTED";
   canRequest: boolean;
@@ -216,51 +204,10 @@ export interface AiEntitlementDto {
 
 export interface EntitlementsDto {
   tripId: string;
-  plan: Plan;
   role: Role;
-  maxActivitiesPerDay: number | null;
-  collaboration: boolean;
-  publicSharing: boolean;
+  /** Máximo de atividades por dia (fixo na v1) */
+  maxActivitiesPerDay: number;
   ai: AiEntitlementDto;
-  canPurchase: boolean;
-  availableUpgrades: UpgradeOptionDto[];
-  hasPendingOrder: boolean;
-}
-
-/* Pagamentos */
-
-export type OrderStatus =
-  | "CREATED"
-  | "OPEN"
-  | "PROCESSING"
-  | "PAID"
-  | "FAILED"
-  | "EXPIRED"
-  | "CANCELED"
-  | "REFUNDED"
-  | "DISPUTED";
-
-export interface OrderDto {
-  id: string;
-  tripId: string | null;
-  product: Product;
-  targetPlan: Plan;
-  amount: number;
-  currency: string;
-  status: OrderStatus;
-  checkoutUrl: string | null;
-  checkoutExpiresAt: string | null;
-  paidAt: string | null;
-  failureReason?: string | null;
-  tripPlan: Plan;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CheckoutResponseDto {
-  order: OrderDto;
-  checkoutUrl: string;
-  reused: boolean;
 }
 
 /* Participantes e convites */

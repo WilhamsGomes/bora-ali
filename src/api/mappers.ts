@@ -76,7 +76,6 @@ export function toTrip(t: TripDetailDto): Trip {
           formattedAddress: opt(t.destinationPlace.formattedAddress),
         }
       : null,
-    plan: t.plan,
     role: t.role,
     updatedAt: t.updatedAt,
     days: [...t.days].sort((a, b) => a.date.localeCompare(b.date)).map(toDay),
@@ -94,11 +93,9 @@ export function toTripSummary(t: TripSummaryDto): TripSummary {
     endDate: t.endDate,
     coverUrl: t.coverUrl,
     stay: opt(t.stay),
-    plan: t.plan,
     role: t.role,
     dayCount: t.dayCount,
     activityCount: t.activityCount,
-    accessible: t.accessible,
   };
 }
 

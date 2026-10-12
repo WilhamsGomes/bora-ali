@@ -130,11 +130,7 @@ function EditTripForm({ trip, onClose }: Omit<EditTripModalProps, "open">) {
     } catch (e) {
       setBusy(false);
       setConfirmDelete(false);
-      setError(
-        isApiError(e, "TRIP_HAS_PENDING_PAYMENT")
-          ? "Há um pagamento em andamento para esta viagem. Aguarde a conclusão antes de excluí-la."
-          : errorMessage(e, "Não foi possível excluir a viagem."),
-      );
+      setError(errorMessage(e, "Não foi possível excluir a viagem."));
     }
   }
 

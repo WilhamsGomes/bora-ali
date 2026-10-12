@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, errorMessage, isApiError } from "@/api/client";
 import type { AiEntitlementDto, AiJobDto, AiKind, Budget, EntitlementsDto, Pace } from "@/api/contracts";
 import { aiApi } from "@/api/endpoints";
-import { UpgradePanel } from "@/components/billing/upgrade-panel";
 import { Button } from "@/components/ui/button";
 import { inputClasses } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
@@ -29,7 +28,6 @@ interface AiAssistantProps {
   trip: Trip;
   dayId: string;
   entitlements: EntitlementsDto | undefined;
-  ownerName?: string;
 }
 
 export function AiAssistant(props: AiAssistantProps) {
@@ -50,7 +48,7 @@ export function AiAssistant(props: AiAssistantProps) {
   );
 }
 
-function AssistantBody({ trip, dayId, entitlements, ownerName }: AiAssistantProps) {
+function AssistantBody({ trip, dayId, entitlements }: AiAssistantProps) {
   const usage = useAiUsage(trip.id, true);
   const [jobId, setJobId] = useState<string | null>(null);
   const [resumeChecked, setResumeChecked] = useState(false);
@@ -82,7 +80,7 @@ function AssistantBody({ trip, dayId, entitlements, ownerName }: AiAssistantProp
     );
   }
   if (usage.isError) {
-    if (isApiError(usage.error, "TRIP_UPGRADE_REQUIRED") || isApiError(usage.error, "FORBIDDEN")) {
+    if (isApiError(usage.error, "FORBIDDEN")) {
       return <Blocked title="IA indisponível para você nesta viagem">{usage.error.message}</Blocked>;
     }
     return (
@@ -96,19 +94,8 @@ function AssistantBody({ trip, dayId, entitlements, ownerName }: AiAssistantProp
   }
 
   const ai = usage.data;
-  if (jobId) return <JobTracker trip={trip} jobId={jobId} onBack={() => setJobId(null)} entitlements={entitlements} ownerName={ownerName} />;
+  if (jobId) return <JobTracker trip={trip} jobId={jobId} onBack={() => setJobId(null)} entitlements={entitlements} />;
 
-  if (!ai.enabled) {
-    return entitlements ? (
-      <UpgradePanel
-        tripId={trip.id}
-        entitlements={entitlements}
-        ownerName={ownerName}
-        only={["PRO_AI"]}
-        reason="Sugestões e ajustes com IA fazem parte do plano PRO + IA, com uso limitado por viagem."
-      />
-    ) : null;
-  }
   if (!ai.available) {
     return (
       <Blocked title={ai.unavailableReason === "AI_BUDGET_EXHAUSTED" ? "O uso de IA desta viagem chegou ao limite" : "IA indisponível no momento"}>
@@ -487,13 +474,11 @@ function JobTracker({
   jobId,
   onBack,
   entitlements,
-  ownerName,
 }: {
   trip: Trip;
   jobId: string;
   onBack: () => void;
   entitlements: EntitlementsDto | undefined;
-  ownerName?: string;
 }) {
   const qc = useQueryClient();
   const refreshTrip = useRefreshTrip(trip.id);
@@ -617,16 +602,12 @@ function JobTracker({
           job={job}
           trip={trip}
           onApplied={refreshTrip}
-          renderLimit={() =>
-            entitlements ? (
-              <UpgradePanel
-                tripId={trip.id}
-                entitlements={entitlements}
-                ownerName={ownerName}
-                reason="Um dos dias atingiu o limite de atividades do plano. Nenhuma sugestão foi adicionada."
-              />
-            ) : null
-          }
+          renderLimit={() => (
+            <p role="alert" className="rounded-2xl bg-[#fbf2df] px-4 py-3 text-sm text-[#5c430c]">
+              Um dos dias atingiu o limite de {entitlements?.maxActivitiesPerDay ?? "10"} atividades. Nenhuma sugestão foi
+              adicionada: remova atividades desse dia ou escolha menos sugestões.
+            </p>
+          )}
         />
       )}
     </div>

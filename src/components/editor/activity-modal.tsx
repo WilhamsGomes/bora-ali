@@ -1,7 +1,7 @@
 "use client";
 
 import { GitCompareArrows, LoaderCircle, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { errorMessage, isApiError } from "@/api/client";
 import type { ActivityDto } from "@/api/contracts";
 import { toActivity } from "@/api/mappers";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Field, inputClasses } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { categories, categoryOrder } from "@/lib/categories";
-import { FREE_ACTIVITIES_PER_DAY } from "@/lib/plans";
+import { MAX_ACTIVITIES_PER_DAY } from "@/lib/limits";
 import { endTime, findOverlap } from "@/lib/activities";
 import { formatDuration, longDate } from "@/lib/dates";
 import type { Activity, ActivityContent, ActivityPlace, Category, TripDay } from "@/lib/types";
@@ -37,8 +37,6 @@ interface ActivityModalProps {
   onSubmit: (draft: ActivityDraft, version?: number) => Promise<void>;
   /** Recarrega o roteiro (após conflito ou mudança de permissão) */
   onStale: () => void;
-  /** Opções de upgrade quando o limite do plano é atingido */
-  renderUpgrade: (reason: React.ReactNode) => React.ReactNode;
   limitPerDay: number | null;
 }
 
@@ -66,7 +64,6 @@ function ActivityForm({
   onClose,
   onSubmit,
   onStale,
-  renderUpgrade,
   limitPerDay,
 }: ActivityModalProps) {
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -98,12 +95,7 @@ function ActivityForm({
   const movingDay = !!initial && dayId !== initial.dayId;
   const dayFull = (!initial || movingDay) && !day.canAddActivities;
 
-  const upgradeRef = useRef<HTMLDivElement>(null);
-  const showUpgrade = dayFull || problem?.kind === "limit";
-  // Quando o servidor recusa pelo limite, leva as opções de plano até a tela (o rascunho continua acima)
-  useEffect(() => {
-    if (problem?.kind === "limit") upgradeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [problem]);
+  const limitNotice = problem?.kind === "limit" ? problem.limit : dayFull ? (limitPerDay ?? MAX_ACTIVITIES_PER_DAY) : null;
 
   const draft = (): ActivityDraft => ({
     dayId,
@@ -125,7 +117,7 @@ function ActivityForm({
     } catch (e) {
       setBusy(false);
       if (isApiError(e, "DAILY_ACTIVITY_LIMIT_REACHED")) {
-        setProblem({ kind: "limit", limit: Number(e.details.limit ?? limitPerDay ?? FREE_ACTIVITIES_PER_DAY) });
+        setProblem({ kind: "limit", limit: Number(e.details.limit ?? limitPerDay ?? MAX_ACTIVITIES_PER_DAY) });
         onStale();
       } else if (isApiError(e, "VERSION_CONFLICT") && e.details.current) {
         setProblem({ kind: "conflict", current: toActivity(e.details.current as ActivityDto) });
@@ -136,7 +128,7 @@ function ActivityForm({
       } else if (isApiError(e, "DAY_NOT_FOUND")) {
         setProblem({ kind: "error", message: "Este dia não existe mais na viagem (as datas mudaram). Escolha outro dia." });
         onStale();
-      } else if (isApiError(e, "FORBIDDEN") || isApiError(e, "TRIP_UPGRADE_REQUIRED") || isApiError(e, "TRIP_NOT_FOUND")) {
+      } else if (isApiError(e, "FORBIDDEN") || isApiError(e, "TRIP_NOT_FOUND")) {
         setProblem({ kind: "error", message: `${e.message} Seu rascunho continua aqui.` });
         onStale();
       } else {
@@ -195,19 +187,15 @@ function ActivityForm({
           <p className="mt-1">Seu rascunho continua abaixo. Você pode criá-la de novo ou descartar.</p>
         </div>
       )}
-      {dayFull && problem?.kind !== "limit" && (
-        <p role="status" className="flex items-start gap-2 rounded-2xl bg-[#fbf2df] px-3.5 py-3 text-sm text-[#5c430c]">
+      {limitNotice !== null && (
+        <p
+          role={problem?.kind === "limit" ? "alert" : "status"}
+          className="flex items-start gap-2 rounded-2xl bg-[#fbf2df] px-3.5 py-3 text-sm text-[#5c430c]"
+        >
           <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
           <span>
-            Este dia já está no limite do plano ({limitPerDay ?? FREE_ACTIVITIES_PER_DAY} atividades). Escolha outro dia ou{" "}
-            <button
-              type="button"
-              className="font-semibold underline"
-              onClick={() => upgradeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
-            >
-              veja os planos
-            </button>
-            .
+            Este dia já tem {limitNotice} atividades, o máximo por dia. Escolha outro dia ou remova uma atividade dele
+            {problem?.kind === "limit" ? ". Seu rascunho continua aqui." : "."}
           </span>
         </p>
       )}
@@ -356,16 +344,6 @@ function ActivityForm({
         )}
       </Field>
 
-      {showUpgrade && (
-        <div ref={upgradeRef} className="scroll-mb-24">
-          {renderUpgrade(
-          <>
-            Este dia já tem {problem?.kind === "limit" ? problem.limit : (limitPerDay ?? FREE_ACTIVITIES_PER_DAY)} atividades, o limite do plano
-            gratuito. Seu rascunho continua aqui: escolha outro dia ou libere atividades ilimitadas.
-          </>,
-          )}
-        </div>
-      )}
 
       <div className="flex flex-wrap justify-end gap-2 pt-1">
         <Button variant="ghost" onClick={onClose}>

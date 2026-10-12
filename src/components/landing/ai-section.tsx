@@ -94,7 +94,7 @@ export function AiSection() {
               })}
             </ul>
             <p className="mt-4 text-xs text-cream/60">
-              Exemplo ilustrativo: estas sugestões são fictícias. No app, a IA (plano PRO + IA) propõe sugestões que você revisa antes de entrar no roteiro.
+              Exemplo ilustrativo: estas sugestões são fictícias. No app, a IA propõe sugestões que você revisa antes de entrar no roteiro.
             </p>
           </div>
         </div>

@@ -8,7 +8,6 @@ import type {
   AiJobDto,
   AuthResponseDto,
   BatchCreateResultDto,
-  CheckoutResponseDto,
   CreateTripDto,
   DayDto,
   DaySuggestionsRequestDto,
@@ -16,7 +15,6 @@ import type {
   InvitationDto,
   InvitationPreviewDto,
   MemberDto,
-  OrderDto,
   PlaceSearchResultDto,
   PublicTripDto,
   Role,
@@ -99,13 +97,6 @@ export const sharingApi = {
   rotate: (tripId: string) => apiFetch<ShareLinkDto>(`${trip(tripId)}/share/rotate`, { method: "POST" }),
   /** Rota pública: sem token e sem renovação de sessão */
   getPublic: (token: string) => apiFetch<PublicTripDto>(`/public/trips/${enc(token)}`, { auth: false }),
-};
-
-export const billingApi = {
-  checkout: (tripId: string, plan: "PRO" | "PRO_AI") =>
-    apiFetch<CheckoutResponseDto>("/billing/checkout", { method: "POST", body: { tripId, plan } }),
-  order: (orderId: string) => apiFetch<OrderDto>(`/billing/orders/${enc(orderId)}`),
-  tripOrders: (tripId: string) => apiFetch<OrderDto[]>(`${trip(tripId)}/orders`),
 };
 
 export const aiApi = {

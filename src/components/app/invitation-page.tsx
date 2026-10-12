@@ -10,7 +10,7 @@ import { invitationsApi } from "@/api/endpoints";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { dateRange } from "@/lib/dates";
-import { roleLabels } from "@/lib/plans";
+import { roleLabels } from "@/lib/roles";
 import { useSession } from "@/state/providers";
 import { keys } from "@/state/queries";
 
@@ -84,11 +84,6 @@ function InvitationCard({ token, preview }: { token: string; preview: Preview })
         });
       } else if (isApiError(e, "INVITATION_INVALID")) {
         setError({ title: "Convite indisponível", text: "Este convite expirou, foi revogado ou já foi usado." });
-      } else if (isApiError(e, "TRIP_UPGRADE_REQUIRED")) {
-        setError({
-          title: "Colaboração indisponível nesta viagem",
-          text: `O plano atual da viagem não inclui convidados. Fale com ${preview.inviterName}.`,
-        });
       } else {
         setError({ title: "Não foi possível aceitar", text: errorMessage(e) });
       }
