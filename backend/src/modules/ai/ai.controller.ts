@@ -60,7 +60,7 @@ export class AiController {
   @ApiOperation({ summary: 'Gera sugestões para um dia (assíncrono; OWNER/EDITOR; PRO_AI)' })
   @ApiAcceptedResponse({ type: AiJobDto })
   @ApiOkResponse({ type: AiJobDto, description: 'Mesma Idempotency-Key: trabalho existente' })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'TRIP_UPGRADE_REQUIRED / AI_USAGE_LIMIT_REACHED / FORBIDDEN' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'AI_USAGE_LIMIT_REACHED / FORBIDDEN' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'AI_JOB_IN_PROGRESS' })
   @ApiServiceUnavailableResponse({ type: ErrorResponseDto, description: 'AI_UNAVAILABLE' })
   daySuggestions(
@@ -78,7 +78,7 @@ export class AiController {
   @ApiHeader(IDEMPOTENCY_HEADER)
   @ApiOperation({ summary: 'Gera sugestões para a viagem inteira (assíncrono; acompanhe pelo trabalho)' })
   @ApiAcceptedResponse({ type: AiJobDto })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'TRIP_UPGRADE_REQUIRED / AI_USAGE_LIMIT_REACHED' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'AI_USAGE_LIMIT_REACHED' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'AI_JOB_IN_PROGRESS' })
   @ApiServiceUnavailableResponse({ type: ErrorResponseDto, description: 'AI_UNAVAILABLE' })
   tripSuggestions(
@@ -105,7 +105,7 @@ export class AiController {
     description: 'O resultado é uma lista de mudanças propostas; nada é aplicado automaticamente.',
   })
   @ApiAcceptedResponse({ type: AiJobDto })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'TRIP_UPGRADE_REQUIRED / AI_USAGE_LIMIT_REACHED' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'AI_USAGE_LIMIT_REACHED' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'AI_JOB_IN_PROGRESS' })
   adjustments(
     @CurrentUser() user: AuthUser,

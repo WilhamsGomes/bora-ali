@@ -39,7 +39,7 @@ export class InvitationsController {
     type: InvitationDto,
     description: 'Convite criado. Confira delivery.status: FAILED indica que o envio falhou e pode ser repetido via /resend.',
   })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'TRIP_UPGRADE_REQUIRED / FORBIDDEN' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'FORBIDDEN' })
   @ApiConflictResponse({ type: ErrorResponseDto, description: 'ALREADY_MEMBER' })
   @ApiServiceUnavailableResponse({ type: ErrorResponseDto, description: 'EMAIL_DELIVERY_UNAVAILABLE' })
   create(
@@ -106,7 +106,7 @@ export class InvitationsController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Aceita o convite com a conta do e-mail convidado' })
   @ApiOkResponse({ type: AcceptInvitationResultDto })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'INVITATION_EMAIL_MISMATCH / TRIP_UPGRADE_REQUIRED' })
+  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'INVITATION_EMAIL_MISMATCH' })
   @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'INVITATION_INVALID' })
   accept(@CurrentUser() user: AuthUser, @Body() dto: InvitationTokenDto): Promise<AcceptInvitationResultDto> {
     return this.invitations.accept(user.id, dto.token);

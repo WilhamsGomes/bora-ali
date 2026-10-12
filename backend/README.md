@@ -1,10 +1,13 @@
 # BoraAli — backend
 
-API do BoraAli: roteiros de viagem com planejamento manual, colaboração, link público, pagamento único por viagem
-(Stripe Checkout, BRL) e geração com IA (Claude).
+API do BoraAli: roteiros de viagem com planejamento manual, colaboração, link público e geração com IA (Claude).
 
-**Stack:** NestJS 11 · TypeScript 5.9 · Prisma 6 · PostgreSQL 17 · Stripe (`stripe` 23, API `2026-09-30.endive`) ·
-Anthropic SDK (modelo configurável, padrão `claude-opus-5-5`) · Resend (`resend` 6) · Jest + Supertest.
+> **v1 (validação, branch `v1-sem-planos`):** sem planos nem compra. Todas as viagens têm colaboração, link público e
+> IA (com as cotas e o orçamento internos por viagem), e cada dia aceita até **10 atividades**. O módulo de cobrança
+> (Stripe) foi removido do código; as tabelas `Order`, `BillingCustomer`, `StripeWebhookEvent` e a coluna `Trip.plan`
+> continuam no schema, sem uso, para o banco seguir compatível com a branch `main` (que mantém os planos).
+
+**Stack:** NestJS 11 · TypeScript 5.9 · Prisma 6 · PostgreSQL 17 · Anthropic SDK (modelo configurável, padrão `claude-opus-5-5`) · Resend (`resend` 6) · Jest + Supertest.
 
 Monólito modular. A fila de trabalhos (IA) usa o próprio PostgreSQL (`FOR UPDATE SKIP LOCKED`), sem Redis.
 
@@ -17,15 +20,13 @@ Monólito modular. A fila de trabalhos (IA) usa o próprio PostgreSQL (`FOR UPDA
 3. [Organização](#organização)
 4. [Regras de negócio](#regras-de-negócio)
 5. [Autenticação e tokens no frontend](#autenticação-e-tokens-no-frontend)
-6. [Stripe em modo teste](#stripe-em-modo-teste)
-7. [Reembolso e disputa](#reembolso-e-disputa)
-8. [IA](#ia)
-9. [E-mail (Resend)](#e-mail-resend)
-10. [Localização e mapa (Geoapify)](#localização-e-mapa-geoapify)
-11. [Integração com o frontend](#integração-com-o-frontend)
-12. [Observabilidade e segurança](#observabilidade-e-segurança)
-13. [Endpoints](#endpoints)
-14. [Pendências de configuração externa](#pendências-de-configuração-externa)
+6. [IA](#ia)
+7. [E-mail (Resend)](#e-mail-resend)
+8. [Localização e mapa (Geoapify)](#localização-e-mapa-geoapify)
+9. [Integração com o frontend](#integração-com-o-frontend)
+10. [Observabilidade e segurança](#observabilidade-e-segurança)
+11. [Endpoints](#endpoints)
+12. [Pendências de configuração externa](#pendências-de-configuração-externa)
 
 ---
 
@@ -44,14 +45,13 @@ npm run db:seed                    # usuários e viagens de exemplo
 npm run start:dev                  # http://localhost:3333/api/v1 — Swagger em /api/docs
 ```
 
-Com `RUN_WORKERS=true` (padrão no `.env.example`) a própria API processa a fila de IA e a reconciliação de
-pagamentos. Em produção use `RUN_WORKERS=false` na API e rode o worker separado (`npm run start:worker`).
+Com `RUN_WORKERS=true` (padrão no `.env.example`) a própria API processa a fila de IA e a limpeza do cache de buscas. Em produção use `RUN_WORKERS=false` na API e rode o worker separado (`npm run start:worker`).
 
 Usuários do seed (senha `boraali123`):
 
 | E-mail | Papel |
 | --- | --- |
-| `ana@boraali.dev` | Proprietária de "Férias em Lisboa" (PRO_AI) e "Fim de semana em Paraty" (FREE, 5 atividades no 1º dia — no limite do plano) |
+| `ana@boraali.dev` | Proprietária de "Férias em Lisboa" e "Fim de semana em Paraty" (só da Ana) |
 | `bruno@boraali.dev` | EDITOR em Lisboa |
 | `carla@boraali.dev` | VIEWER em Lisboa |
 
@@ -80,16 +80,13 @@ reconciliação). A imagem é única (`boraali-backend:local`), com comandos dif
 | `npm test` | Unitários + e2e (precisa do Postgres do compose) |
 | `npm run test:unit` / `npm run test:e2e` | Separadamente |
 | `npm run db:seed` | Seed idempotente de desenvolvimento |
-| `npm run stripe:setup` | Cria produtos/preços no Stripe **de teste** |
 | `npm run ai:eval -- --confirm-paid-calls` | Avaliação opcional de custo da IA (**chamadas pagas**; ver [IA](#ia)) |
 
-Os testes e2e usam o banco `boraali_test` (aplicam as migrações sozinhos) e **nenhum serviço externo**: um gateway
-Stripe falso **com verificação de assinatura real do SDK**, um provedor de IA roteirizável e um cliente Resend falso
-que deduplica por chave de idempotência. Cobrem: autorização por papel e plano, limite diário sob concorrência
-(10 requisições simultâneas → exatamente 3 criadas), lote atômico, conflito de versão, alteração de datas, convites
-(envio, falha, reenvio sem duplicar, limites, escape do template, ausência de tokens nos logs), link público,
-checkout/upgrade/elegibilidade, compras duplicadas, webhooks repetidos/concorrentes/fora de ordem/com valor
-divergente, pagamento assíncrono, reembolso/disputa, reconciliação e IA. Na IA: recusa sem nova tentativa e sem troca
+Os testes e2e usam o banco `boraali_test` (aplicam as migrações sozinhos) e **nenhum serviço externo**: um provedor de
+IA roteirizável, um provedor de geocodificação falso e um cliente Resend falso que deduplica por chave de idempotência.
+Cobrem: autorização por papel, limite diário sob concorrência (requisições simultâneas nunca passam de 10 por dia),
+lote atômico, conflito de versão, alteração de datas, convites (envio, falha, reenvio sem duplicar, limites, escape do
+template, ausência de tokens nos logs), link público, busca de lugares e cache, e IA. Na IA: recusa sem nova tentativa e sem troca
 de modelo, novas tentativas só em erros transitórios (backoff/`retry-after`), cota liberada em falhas com custo
 preservado, reservas de orçamento concorrentes, limites de tamanho, configuração de modelo/preços e idempotência.
 
@@ -105,38 +102,32 @@ src/
   modules/
     auth/          cadastro, login, refresh com rotação, logout, guard JWT global
     users/         /users/me
-    entitlements/  ★ regras centrais: plano → recursos, papel → ações, cota e orçamento de IA
+    entitlements/  ★ regras centrais: limite por dia, papel → ações, cota e orçamento de IA
     trips/         CRUD de viagens, sincronização de dias ao mudar datas
     itinerary/     dias e atividades: limites, versões, ordenação, lote, avisos
     invitations/   convites e participantes
     sharing/       link público
     mail/          porta de e-mail, adaptador Resend, outbox de desenvolvimento e templates
-    billing/       checkout, webhooks, sincronização de pagamentos, reconciliação
+    locations/     busca de lugares (Geoapify) e cache persistente
     ai/            trabalhos de IA, worker, provedores (Anthropic e mock)
     health/        liveness/readiness
   main.ts          API HTTP
   worker.ts        processo de segundo plano (sem HTTP)
 ```
 
-Toda checagem de acesso passa por `TripAccessService.require(userId, tripId, ação)`; o mapa papel → ação e
-ação → recurso de plano vive em `entitlements/trip-access.service.ts`, e o catálogo de planos/preços em
-`entitlements/plan-policy.ts`. Nenhum limite depende do frontend.
+Toda checagem de acesso passa por `TripAccessService.require(userId, tripId, ação)`; o mapa papel → ação vive em
+`entitlements/trip-access.service.ts`, e o limite de atividades por dia em `entitlements/limits.ts`. Nenhum limite
+depende do frontend.
 
 ---
 
 ## Regras de negócio
 
-### Planos (por viagem, sem expiração)
+### Limites (v1)
 
-| | FREE | PRO (R$ 9,90) | PRO_AI (R$ 19,90) |
-| --- | --- | --- | --- |
-| Atividades por dia | 5 | ilimitado | ilimitado |
-| Colaboração (convites) | — | ✓ | ✓ |
-| Link público | — | ✓ | ✓ |
-| IA | — | — | ✓ |
-
-Upgrade PRO → PRO_AI: R$ 10,00. PRO_AI não compra PRO; PRO só compra o upgrade; FREE compra PRO ou PRO_AI. Valores
-internos em centavos (990, 1990, 1000). Exportação PNG/PDF é feita no frontend, em todos os planos.
+Sem planos nem compra: todas as viagens têm colaboração (convites), link público e IA. O único limite de produto é
+**10 atividades por dia** (`MAX_ACTIVITIES_PER_DAY`). A IA continua com as cotas e o orçamento internos por viagem
+(ver [IA](#ia)). Exportação PNG/PDF é feita no frontend.
 
 ### Papéis
 
@@ -144,11 +135,8 @@ internos em centavos (990, 1990, 1000). Exportação PNG/PDF é feita no fronten
 | --- | :-: | :-: | :-: |
 | Ler viagem, dias, atividades, participantes | ✓ | ✓ | ✓ |
 | Criar/editar/mover/excluir/reordenar atividades, títulos de dias | ✓ | ✓ | |
-| Solicitar IA (PRO_AI) | ✓ | ✓ | |
-| Editar/excluir viagem, convites, papéis, link público, compras | ✓ | | |
-
-Se a viagem voltar ao FREE (reembolso/disputa), convidados mantêm o vínculo mas o acesso fica suspenso
-(`TRIP_UPGRADE_REQUIRED`) e o link público deixa de responder. Nada é apagado.
+| Solicitar IA | ✓ | ✓ | |
+| Editar/excluir viagem, convites, papéis, link público | ✓ | | |
 
 ### Datas e horários
 
@@ -160,9 +148,9 @@ Se a viagem voltar ao FREE (reembolso/disputa), convidados mantêm o vínculo ma
 
 - Ordenação: horário, depois `position` (desempate). `PUT …/activities/order` só altera o desempate e recusa ordens que
   contrariem os horários (`INVALID_REORDER`). Mudar horário ou dia coloca a atividade no fim do novo horário.
-- Limite FREE: verificado na criação, no lote (atômico) e ao mover entre dias, com os dias bloqueados
+- Limite de 10 por dia: verificado na criação, no lote (atômico) e ao mover entre dias, com os dias bloqueados
   (`SELECT … FOR UPDATE`) na transação — requisições concorrentes não passam do limite.
-- Dia acima do limite (após reversão do plano): consulta, edição e exclusão continuam; novas adições são bloqueadas.
+- Dia acima do limite (dados antigos): consulta, edição e exclusão continuam; novas adições são bloqueadas.
 - Sobreposição (com duração definida) gera `warnings` informativos; não impede salvar.
 - Controle de versão otimista: `PATCH` exige `version`; `DELETE` aceita `?version=`. Versão desatualizada →
   `409 VERSION_CONFLICT` com a versão atual em `details.current`.
@@ -198,81 +186,6 @@ geram novo conflito.
    em `CORS_ORIGINS`. Mesmo site (ex.: `app.` e `api.` do mesmo domínio): prefira `SameSite=lax` e `COOKIE_DOMAIN`.
 
 Como o refresh só aceita `POST` com JSON e o CORS restringe origens, um site de terceiros não consegue ler a resposta.
-
----
-
-## Stripe em modo teste
-
-> Não use chaves live. `env.ts` recusa `sk_live_…` (a menos que `STRIPE_ALLOW_LIVE_KEYS=true`), e o script de setup
-> só aceita `sk_test_…`.
-
-1. Crie produtos/preços de teste e copie as variáveis exibidas para o `.env`:
-   ```bash
-   STRIPE_SECRET_KEY=sk_test_... npm run stripe:setup
-   ```
-   O checkout também confere, antes de cada compra, que o preço configurado no Stripe tem o valor, a moeda (BRL) e o
-   tipo (pagamento único) do catálogo interno (`BILLING_MISCONFIGURED` se não tiver).
-2. Encaminhe webhooks para a API local com a [Stripe CLI](https://docs.stripe.com/stripe-cli):
-   ```bash
-   stripe listen --forward-to localhost:3333/api/v1/billing/webhooks/stripe
-   ```
-   Copie o `whsec_…` exibido para `STRIPE_WEBHOOK_SECRET`.
-3. Faça uma compra pelo frontend (ou via Swagger) e pague com o cartão de teste `4242 4242 4242 4242`, validade
-   futura, qualquer CVC.
-
-**Eventos usados** (configure-os no endpoint do Dashboard em homologação/produção):
-`checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`,
-`checkout.session.expired`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`,
-`charge.dispute.closed`.
-
-> `stripe trigger …` cria objetos próprios, sem relação com pedidos do BoraAli: esses eventos são registrados como
-> `unknown_order` e não alteram nada. Para testar o fluxo de verdade, passe pelo checkout.
-
-### Como o pagamento é confirmado
-
-- O cliente envia só `tripId` e `plan`; o servidor decide produto, preço e elegibilidade e grava um `Order`.
-- Um índice único parcial garante **um pedido ativo por viagem** (`CREATED`/`OPEN`/`PROCESSING`). Repetir a compra do
-  mesmo produto reaproveita a sessão aberta; trocar de produto expira a sessão anterior no Stripe.
-- A sessão é criada com `Idempotency-Key: checkout:<orderId>` e carrega `orderId` em `client_reference_id` e
-  `metadata`.
-- O benefício é liberado **somente** quando o servidor confirma na API do Stripe que a sessão está `complete` +
-  `payment_status=paid`, e que referência, moeda, valor e modo conferem com o pedido. O redirect de sucesso nunca
-  libera nada.
-- O webhook verifica a assinatura com o corpo bruto, registra o `event.id` (`StripeWebhookEvent`) e sempre consulta o
-  estado atual no Stripe. Isso torna o processamento idempotente e independente da ordem dos eventos. Falhas
-  respondem 5xx para o Stripe reenviar.
-- O plano é recalculado a partir dos pedidos pagos (nunca rebaixa ao conceder). Pagamentos sem efeito ou em
-  duplicidade ficam com `requiresReview=true` para reembolso manual.
-- **Reconciliação** (worker, a cada 5 min): revisita sessões abertas vencidas, pedidos `PROCESSING` e pedidos `CREATED`
-  interrompidos. `GET /billing/orders/:id` também consulta o Stripe (no máximo a cada 15 s) enquanto o pedido estiver
-  pendente.
-
-Estados do pedido: `CREATED → OPEN → (PROCESSING) → PAID`, ou `FAILED`/`EXPIRED`/`CANCELED`. Depois de pago, pode ir
-para `REFUNDED` ou `DISPUTED` (e voltar a `PAID` se a disputa for ganha).
-
----
-
-## Reembolso e disputa
-
-Política implementada (revise com o jurídico/financeiro):
-
-| Evento | Efeito |
-| --- | --- |
-| Reembolso **total** (`charge.refunded` com `refunded=true`) | Pedido `REFUNDED`; plano recalculado sem ele |
-| Reembolso parcial | Nenhuma mudança de plano (tratar caso a caso) |
-| Disputa aberta (`needs_response`, `under_review`, `lost`) | Pedido `DISPUTED`; benefício suspenso |
-| Disputa ganha (`won`) | Pedido volta a `PAID`; benefício restaurado |
-| Consultas (`warning_*`) | Sem efeito |
-
-Reembolsar o PRO de uma viagem que fez upgrade derruba também o upgrade, que sozinho não concede PRO_AI.
-
-**O roteiro nunca é apagado.** Ao voltar ao FREE: dias com mais de 5 atividades continuam consultáveis, editáveis e
-excluíveis, mas não aceitam novas atividades; convidados ficam com acesso suspenso; o link público para de responder;
-a IA fica indisponível. Se o pagamento for restaurado, tudo volta a funcionar sem reconfiguração.
-
-Reembolsos são feitos pelo Dashboard do Stripe; o webhook aplica o efeito. Pedidos com `requiresReview=true`
-(pagamento sem efeito ou duplicado) devem ser reembolsados manualmente — o worker registra um aviso enquanto houver
-algum.
 
 ---
 
@@ -366,9 +279,8 @@ Premissas **não medidas** (estimativas para dimensionar; confirme com `npm run 
 | Ajuste | 1 | ~3.500 / ~3.000 | ~0,07 USD | ~0,04 USD |
 | **Todas as cotas** (10 + 1 + 5) | 16 | — | **~1,41 USD** | **~0,70 USD** |
 
-Leitura: o PRO_AI custa R$ 10,00 a mais que o PRO. Com câmbio hipotético de R$ 5,50/USD, o orçamento de 1,50 USD
-(~R$ 8,25) cobre o uso total estimado com Opus. Mas um cliente que esgote as cotas pode consumir quase todo o valor
-incremental, antes das taxas do Stripe e dos impostos. **Nenhuma rentabilidade é afirmada.** Meça antes de ajustar
+Leitura: com câmbio hipotético de R$ 5,50/USD, o orçamento de 1,50 USD (~R$ 8,25) por viagem cobre o uso total
+estimado com Opus. Na v1 a IA é gratuita para todas as viagens, então esse orçamento é custo direto. Meça antes de ajustar
 modelo, `AI_EFFORT`, cotas ou orçamento. A reserva de pior caso por chamada é ~0,17 USD (Opus, 8.000 tokens de saída).
 Até 3 tentativas com custo desconhecido podem reservar ~0,52 USD de uma vez.
 
@@ -502,8 +414,7 @@ Sem `GEOAPIFY_API_KEY`, a busca responde `503` e o formulário avisa que o local
 
   | code | Quando | Sugestão de UI |
   | --- | --- | --- |
-  | `DAILY_ACTIVITY_LIMIT_REACHED` | 4ª atividade no FREE (`details.limit`, `availableUpgrades`) | Oferecer upgrade |
-  | `TRIP_UPGRADE_REQUIRED` | Recurso fora do plano (`details.feature`) | Oferecer upgrade (só OWNER compra) |
+  | `DAILY_ACTIVITY_LIMIT_REACHED` | Dia já tem 10 atividades (`details.limit`) | Sugerir outro dia ou remover uma atividade |
   | `VERSION_CONFLICT` | Outro colaborador alterou (`details.current`) | Mostrar versão atual e reaplicar |
   | `TRIP_DATE_CHANGE_CONFLICT` | Datas removem dias com atividades | Confirmar com `confirmRemoveDates` |
   | `AI_USAGE_LIMIT_REACHED` | Cota da operação esgotada na viagem (`details.limit/used`) | Desabilitar o botão daquela operação |
@@ -513,18 +424,11 @@ Sem `GEOAPIFY_API_KEY`, a busca responde `503` e o formulário avisa que o local
   | `job.error.code = AI_REQUEST_REFUSED` | A IA recusou o pedido (no trabalho, não no HTTP) | Exibir `error.message`; sugerir reformular |
   | `INVITATION_RESEND_LIMITED` / `INVITATION_NOT_RESENDABLE` | Reenvio cedo demais (`retryAfterSeconds`), envios esgotados ou convite não pendente | Desabilitar "reenviar" |
   | `EMAIL_DELIVERY_UNAVAILABLE` | Ambiente sem provedor de e-mail | Ocultar convites |
-  | `PAYMENT_PENDING` / `PLAN_ALREADY_ACTIVE` / `PLAN_NOT_ELIGIBLE` | Checkout | Mostrar estado do pedido |
   | `VALIDATION_ERROR` | `details.fields[]` por campo | Erros no formulário |
   | `UNAUTHENTICATED` | Token expirado | Refresh e repetir |
 
-- `GET /trips/:id/entitlements` é a fonte para habilitar/desabilitar recursos (plano, `maxActivitiesPerDay` — `null` =
-  ilimitado —, colaboração, compartilhamento, IA com uso, `canPurchase`, `availableUpgrades`). Cada dia também traz
+- `GET /trips/:id/entitlements` traz o papel, `maxActivitiesPerDay` (10) e a disponibilidade/uso da IA. Cada dia também traz
   `canAddActivities`.
-- **Checkout:** `POST /billing/checkout {tripId, plan}` → redirecione para `checkoutUrl`. O Stripe volta para
-  `${FRONTEND_URL}/app/viagens/:tripId/pagamento?pedido=<orderId>`; nessa página faça polling em
-  `GET /billing/orders/:orderId` até `PAID` (recarregue os entitlements) ou `FAILED`/`EXPIRED`/`CANCELED`.
-  `PROCESSING` = pagamento assíncrono em análise (pode levar dias). Cancelamento volta para
-  `/app/viagens/:tripId?pagamento=cancelado`.
 - **Convites:** o e-mail leva para `${FRONTEND_URL}/convites/<token>`. Nessa página use `POST /invitations/preview
   {token}` (público) e, com o usuário logado, `POST /invitations/accept {token}`. Na lista de convites, mostre
   `delivery.status`: `PROVIDER_ACCEPTED` = "enviado" (não "entregue"); `FAILED` = oferecer "reenviar"
@@ -547,8 +451,7 @@ Sem `GEOAPIFY_API_KEY`, a busca responde `503` e o formulário avisa que o local
   nunca são logados; tokens em URL (link público) são redigidos.
 - `GET /api/v1/health/live` e `GET /api/v1/health/ready` (checa o banco). O compose usa o readiness.
 - Ambiente validado com zod na inicialização (`src/config/env.ts`): falha rápido e com mensagem clara.
-- Rate limiting por IP (padrão 120/min; login 10/min, cadastro 5/min, refresh 30/min, checkout 10/min,
-  convites 20/h, reenvio de convite 10/h, link público 60/min, IA 5–10/min). Atrás de proxy, configure `TRUST_PROXY`.
+- Rate limiting por IP (padrão 120/min; login 10/min, cadastro 5/min, refresh 30/min, convites 20/h, reenvio de convite 10/h, link público 60/min, IA 5–10/min). Atrás de proxy, configure `TRUST_PROXY`.
 - Helmet, CORS por ambiente (`CORS_ORIGINS`), `whitelist`/`forbidNonWhitelisted` na validação.
 
 ---
@@ -566,7 +469,7 @@ Todos sob `/api/v1`. 🔓 = público.
 | GET, PATCH | `/users/me` | Perfil |
 | POST, GET | `/trips` | Criar / listar (`?scope=all\|owned\|shared`) |
 | GET, PATCH, DELETE | `/trips/:tripId` | Detalhe com dias / editar (OWNER) / excluir (OWNER) |
-| GET | `/trips/:tripId/entitlements` | Plano, limites, recursos, uso de IA, upgrades |
+| GET | `/trips/:tripId/entitlements` | Limite por dia, papel e uso de IA |
 | GET | `/trips/:tripId/days` | Dias com atividades e avisos |
 | GET, PATCH | `/trips/:tripId/days/:dayId` | Dia / título do dia |
 | POST | `/trips/:tripId/days/:dayId/activities` | Criar atividade |
@@ -583,10 +486,6 @@ Todos sob `/api/v1`. 🔓 = público.
 | GET, PUT | `/trips/:tripId/share` | Configuração do link público |
 | POST | `/trips/:tripId/share/rotate` | Renovar token |
 | GET | `/public/trips/:token` 🔓 | Roteiro público somente leitura |
-| POST | `/billing/checkout` | Iniciar Stripe Checkout |
-| GET | `/billing/orders/:orderId` | Status do pedido |
-| GET | `/trips/:tripId/orders` | Pedidos da viagem (OWNER) |
-| POST | `/billing/webhooks/stripe` 🔓 | Webhook (assinatura verificada) |
 | GET | `/trips/:tripId/ai/usage` | Disponibilidade e consumo de IA |
 | POST | `/trips/:tripId/ai/day-suggestions` | Sugestões para um dia |
 | POST | `/trips/:tripId/ai/trip-suggestions` | Sugestões para a viagem inteira |
@@ -597,9 +496,6 @@ Todos sob `/api/v1`. 🔓 = público.
 
 ## Pendências de configuração externa
 
-- [ ] **Stripe:** conta (modo teste), `STRIPE_SECRET_KEY`, preços via `npm run stripe:setup`, endpoint de webhook com os
-      eventos listados e `STRIPE_WEBHOOK_SECRET`. Para produção: ativar a conta, BRL e os métodos de pagamento
-      desejados (ex.: Pix/boleto são assíncronos e já são tratados).
 - [ ] **Anthropic:** `ANTHROPIC_API_KEY` e `AI_PROVIDER=anthropic`; escolher `AI_MODEL`/`AI_EFFORT`; rodar
       `npm run ai:eval -- --confirm-paid-calls` algumas vezes e revisar cotas e `AI_TRIP_BUDGET` com os números
       medidos; configurar um limite de gasto na organização (Console → Billing) como proteção adicional.
@@ -613,4 +509,4 @@ Todos sob `/api/v1`. 🔓 = público.
 - [ ] **Geoapify (busca de locais):** criar o projeto e a chave do backend (`GEOAPIFY_API_KEY`), conferir
       créditos/limites do plano e as atribuições. Ver
       [Localização e mapa](#localização-e-mapa-geoapify).
-- [ ] **Frontend:** páginas `/app/viagens/:id/pagamento`, `/convites/:token` e `/r/:token`, e a categoria `outros`.
+- [ ] **Frontend:** páginas `/convites/:token` e `/r/:token`, e a categoria `outros`.

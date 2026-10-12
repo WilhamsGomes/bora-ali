@@ -5,7 +5,6 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppConfigModule } from './config/config.module';
 import { AiModule } from './modules/ai/ai.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { BillingModule } from './modules/billing/billing.module';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { EntitlementsModule } from './modules/entitlements/entitlements.module';
 import { HealthController } from './modules/health/health.controller';
@@ -24,7 +23,7 @@ import { PrismaModule } from './prisma/prisma.module';
     // Limite padrão por IP; rotas sensíveis definem limites próprios com @Throttle.
     // Armazenamento em memória: com várias instâncias, troque por um storage compartilhado (ex.: Redis).
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
-    // Jobs agendados (reconciliação) só executam quando RUN_WORKERS=true.
+    // Jobs agendados (limpeza de cache de buscas) só executam quando RUN_WORKERS=true.
     ScheduleModule.forRoot(),
     PrismaModule,
     MailModule,
@@ -36,7 +35,6 @@ import { PrismaModule } from './prisma/prisma.module';
     LocationsModule,
     InvitationsModule,
     SharingModule,
-    BillingModule,
     AiModule,
   ],
   controllers: [HealthController],

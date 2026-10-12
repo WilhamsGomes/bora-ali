@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
-import { TripPlan, TripRole } from '@prisma/client';
+import { TripRole } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -136,9 +136,6 @@ export class TripDto extends OmitType(CreateTripDto, ['stay', 'coverUrl', 'desti
   @ApiProperty({ type: String, nullable: true })
   coverUrl: string | null;
 
-  @ApiProperty({ enum: TripPlan })
-  plan: TripPlan;
-
   @ApiProperty({ enum: TripRole, description: 'Papel do usuário atual nesta viagem' })
   role: TripRole;
 
@@ -159,10 +156,6 @@ export class TripSummaryDto extends TripDto {
   @ApiProperty({ type: String, description: 'Nome do proprietário' })
   ownerName: string;
 
-  @ApiProperty({
-    description: 'false quando o usuário é convidado e o plano da viagem não permite mais colaboração',
-  })
-  accessible: boolean;
 }
 
 export class TripDetailDto extends TripDto {

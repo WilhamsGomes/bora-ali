@@ -76,12 +76,8 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
   };
 
   describe('permissões e fluxo básico', () => {
-    it('exige PRO_AI e papel OWNER/EDITOR', async () => {
-      const pro = await createTrip(ctx, owner, { plan: 'PRO' });
-      const res = await daySuggestions(pro.id, pro.days[0].id).expect(403);
-      expect(res.body).toMatchObject({ code: 'TRIP_UPGRADE_REQUIRED', details: { feature: 'ai' } });
-
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+    it('exige papel OWNER/EDITOR (qualquer viagem tem IA)', async () => {
+      const trip = await createTrip(ctx, owner);
       const viewer = await createUser(ctx, 'Carla');
       const editor = await createUser(ctx, 'Bruno');
       await addMember(ctx, trip.id, viewer, 'VIEWER');
@@ -91,12 +87,12 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('reserva, processa e consome somente após sucesso, sem alterar o roteiro', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       const day = trip.days[0].id;
       await ctx.http().post(`/api/v1/trips/${trip.id}/days/${day}/activities`).set(owner.auth).send(activity('Já marcado', '10:00')).expect(201);
 
       const before = await usage(trip.id);
-      expect(before).toMatchObject({ enabled: true, available: true, canRequest: true });
+      expect(before).toMatchObject({ available: true, canRequest: true });
       expect(before.usage.DAY_SUGGESTIONS).toEqual({ limit: 2, used: 0, reserved: 0, remaining: 2 });
 
       const created = await daySuggestions(trip.id, day).expect(202);
@@ -136,7 +132,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
 
   describe('recusa', () => {
     it('é resultado explícito: sem nova tentativa, sem troca de modelo, cota liberada e custo registrado', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       ctx.ai.script = [{ kind: 'refuse', category: 'general_harms' }];
       const created = await daySuggestions(trip.id, trip.days[0].id).expect(202);
       await drain();
@@ -159,7 +155,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
 
   describe('novas tentativas', () => {
     it('repete só erros transitórios, com backoff e retry-after, consumindo uma utilização', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       ctx.ai.script = [
         { kind: 'error', error: new AiProviderError('AI_PROVIDER_ERROR', 'overloaded', true, { httpStatus: 529 }) },
         { kind: 'error', error: new AiProviderError('AI_RATE_LIMITED', 'rate', true, { httpStatus: 429, retryAfterMs: 2_000 }) },
@@ -185,7 +181,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('esgotadas as tentativas, falha, libera a cota e preserva o custo (desconhecido conta a reserva)', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       const transient = () => ({ kind: 'error' as const, error: new AiProviderError('AI_TIMEOUT', 't', true) });
       ctx.ai.script = [transient(), transient(), transient(), transient()];
       const created = await daySuggestions(trip.id, trip.days[0].id).expect(202);
@@ -203,7 +199,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('não repete erros definitivos nem esperas acima do limite', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       // Limite de gasto mensal do provedor (429 sem retry-after): não transitório.
       ctx.ai.script = [{ kind: 'error', error: new AiProviderError('AI_RATE_LIMITED', 'spend cap', false, { httpStatus: 429 }) }];
       const a = await daySuggestions(trip.id, trip.days[0].id).expect(202);
@@ -221,7 +217,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('saída truncada ou inválida não é repetida e mantém o custo estimado', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       ctx.ai.script = [{ kind: 'truncated', usage: { outputTokens: 1000 } }];
       const created = await daySuggestions(trip.id, trip.days[0].id).expect(202);
       await drain();
@@ -232,7 +228,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('modelo efetivo sem preço conhecido fica com custo desconhecido, não zero', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       ctx.ai.script = [{ kind: 'success', model: 'claude-modelo-desconhecido' }];
       const created = await daySuggestions(trip.id, trip.days[0].id).expect(202);
       await drain();
@@ -243,7 +239,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
 
   describe('idempotência e concorrência', () => {
     it('mesma Idempotency-Key devolve o mesmo trabalho; chave reaproveitada com outro pedido é recusada', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       const first = await daySuggestions(trip.id, trip.days[0].id, owner, 'chave-1').expect(202);
       const again = await daySuggestions(trip.id, trip.days[0].id, owner, 'chave-1').expect(200);
       expect(again.body.id).toBe(first.body.id);
@@ -253,7 +249,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('solicitações concorrentes geram uma única reserva', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       const results = await Promise.all([0, 1, 2, 3, 4].map((i) => daySuggestions(trip.id, trip.days[0].id, owner, `k${i}`)));
       expect(results.filter((r) => r.status === 202)).toHaveLength(1);
       results.filter((r) => r.status !== 202).forEach((r) => expect(r.body.code).toBe('AI_JOB_IN_PROGRESS'));
@@ -263,7 +259,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
 
   describe('limites funcionais e de tamanho', () => {
     it('bloqueia ao atingir o limite da viagem (compartilhado entre colaboradores)', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       const editor = await createUser(ctx, 'Bruno');
       await addMember(ctx, trip.id, editor, 'EDITOR');
       await daySuggestions(trip.id, trip.days[0].id, owner).expect(202);
@@ -275,7 +271,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('limita tamanho do pedido e quantidade de dias por geração', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI', startDate: '2026-12-01', endDate: '2026-12-08' });
+      const trip = await createTrip(ctx, owner, { startDate: '2026-12-01', endDate: '2026-12-08' });
       const big = await daySuggestions(trip.id, trip.days[0].id, owner, undefined, { prompt: 'x'.repeat(101) }).expect(422);
       expect(big.body).toMatchObject({ code: 'AI_REQUEST_TOO_LARGE', details: { maxChars: 100 } });
 
@@ -301,7 +297,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
 
   describe('orçamento interno por viagem', () => {
     it('bloqueia novas gerações quando o orçamento acaba, sem expor valores', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       await spend(trip.id, 490_000); // orçamento de teste: 0.50 USD
       const status = await usage(trip.id);
       expect(status).toMatchObject({ available: false, unavailableReason: 'AI_BUDGET_EXHAUSTED', canRequest: false });
@@ -314,7 +310,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('esgotar o orçamento durante o trabalho falha sem chamar o provedor e libera a cota', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       const created = await daySuggestions(trip.id, trip.days[0].id).expect(202);
       await spend(trip.id, 495_000); // gasto concorrente entre a solicitação e o processamento
       await drain();
@@ -325,7 +321,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
     });
 
     it('reservas concorrentes nunca ultrapassam o orçamento', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+      const trip = await createTrip(ctx, owner);
       const j = await daySuggestions(trip.id, trip.days[0].id).expect(202);
       const reservation = 100_000;
       await spend(trip.id, 500_000 - reservation - 1); // cabe exatamente uma reserva
@@ -351,7 +347,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
   });
 
   it('gera a viagem inteira e propõe ajustes com versões de base', async () => {
-    const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+    const trip = await createTrip(ctx, owner);
     const created = await ctx
       .http()
       .post(`/api/v1/trips/${trip.id}/days/${trip.days[1].id}/activities`)
@@ -379,7 +375,7 @@ describe('IA (reserva de uso, custo e trabalhos assíncronos)', () => {
   });
 
   it('recupera trabalhos abandonados e marca a chamada em andamento como custo desconhecido', async () => {
-    const trip = await createTrip(ctx, owner, { plan: 'PRO_AI' });
+    const trip = await createTrip(ctx, owner);
     const created = await daySuggestions(trip.id, trip.days[0].id).expect(202);
     await ctx.prisma.aiJob.update({
       where: { id: created.body.id },

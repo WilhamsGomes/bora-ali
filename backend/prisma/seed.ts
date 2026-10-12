@@ -5,7 +5,7 @@
  *   bruno@boraali.dev  — editor na viagem de Lisboa
  *   carla@boraali.dev  — visualizadora na viagem de Lisboa
  */
-import { ActivityCategory, BillingProduct, OrderStatus, PrismaClient, TripPlan, TripRole } from '@prisma/client';
+import { ActivityCategory, PrismaClient, TripRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 
 const prisma = new PrismaClient();
@@ -31,10 +31,9 @@ async function main() {
   const bruno = await user('bruno@boraali.dev', 'Bruno Lima', passwordHash);
   const carla = await user('carla@boraali.dev', 'Carla Dias', passwordHash);
 
-  await prisma.order.deleteMany({ where: { tripId: { in: [LISBON_TRIP, PARATY_TRIP] } } });
   await prisma.trip.deleteMany({ where: { id: { in: [LISBON_TRIP, PARATY_TRIP] } } });
 
-  // ── Lisboa: PRO_AI, com colaboradores e link público ──
+  // ── Lisboa: com colaboradores e link público ──
   await prisma.trip.create({
     data: {
       id: LISBON_TRIP,
@@ -46,7 +45,6 @@ async function main() {
       timeZone: 'Europe/Lisbon',
       stay: 'Hotel em Alfama',
       coverUrl: 'https://images.unsplash.com/photo-1585208798174-6cedd86e019a',
-      plan: TripPlan.PRO_AI,
       members: {
         create: [
           { userId: ana.id, role: TripRole.OWNER },
@@ -55,19 +53,6 @@ async function main() {
         ],
       },
       shareLink: { create: { token: 'seed-lisboa-link-publico-0001', enabled: true, showNotes: false } },
-      // Pedido pago fictício (identificadores sem relação com o Stripe) para manter o plano coerente.
-      orders: {
-        create: {
-          buyerId: ana.id,
-          product: BillingProduct.PRO_AI,
-          targetPlan: TripPlan.PRO_AI,
-          amount: 1990,
-          currency: 'brl',
-          status: OrderStatus.PAID,
-          stripePriceId: 'price_seed',
-          paidAt: new Date(),
-        },
-      },
     },
   });
 
@@ -113,7 +98,7 @@ async function main() {
     }
   }
 
-  // ── Paraty: FREE, só da Ana (1º dia no limite do plano) ──
+  // ── Paraty: só da Ana ──
   await prisma.trip.create({
     data: {
       id: PARATY_TRIP,

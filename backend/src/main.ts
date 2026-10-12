@@ -8,8 +8,7 @@ import { createAppLogger } from './common/logging';
 import { AppConfig } from './config/app-config.service';
 
 async function bootstrap() {
-  // rawBody: necessário para verificar a assinatura dos webhooks do Stripe.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true, bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   const config = app.get(AppConfig);
   // Logger padrão do Nest (colorido); LOG_FORMAT=json para uma linha JSON por evento.
   app.useLogger(createAppLogger({ LOG_LEVEL: config.get('LOG_LEVEL'), LOG_FORMAT: config.get('LOG_FORMAT') }));

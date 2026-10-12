@@ -31,7 +31,7 @@ describe('Convites por e-mail (Resend simulado)', () => {
     ctx.prisma.invitation.update({ where: { id }, data: { lastSendRequestedAt: new Date(Date.now() - 3_600_000) } });
 
   async function proTrip(name = 'Lisboa <script>alert(1)</script> & "amigos"') {
-    const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+    const trip = await createTrip(ctx, owner);
     await ctx.prisma.trip.update({ where: { id: trip.id }, data: { name } });
     return trip;
   }
@@ -184,7 +184,7 @@ describe('Convites sem provedor de e-mail', () => {
 
   it('responde EMAIL_DELIVERY_UNAVAILABLE e não cria convite', async () => {
     const owner = await createUser(ctx, 'Ana');
-    const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+    const trip = await createTrip(ctx, owner);
     const res = await ctx
       .http()
       .post(`/api/v1/trips/${trip.id}/invitations`)

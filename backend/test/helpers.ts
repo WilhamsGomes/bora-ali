@@ -1,7 +1,7 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { ThrottlerStorage } from '@nestjs/throttler';
-import { TripPlan, TripRole } from '@prisma/client';
+import { TripRole } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
@@ -9,11 +9,10 @@ import { AiProvider } from '../src/modules/ai/ai-provider';
 import { AiWorkerService } from '../src/modules/ai/ai-worker.service';
 import { AuthService } from '../src/modules/auth/auth.service';
 import { MailSender } from '../src/modules/mail/mail.service';
-import { StripeGateway } from '../src/modules/billing/stripe.gateway';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { GeocodingProvider } from '../src/modules/locations/geocoding-provider';
 import { LocationsService } from '../src/modules/locations/locations.service';
-import { FakeAiProvider, FakeGeocodingProvider, FakeStripeGateway } from './fakes';
+import { FakeAiProvider, FakeGeocodingProvider } from './fakes';
 
 /** Esperas solicitadas pelo worker de IA entre tentativas (para asserções). */
 export const aiWaits: number[] = [];
@@ -21,26 +20,22 @@ export const aiWaits: number[] = [];
 export interface TestContext {
   app: NestExpressApplication;
   prisma: PrismaService;
-  stripe: FakeStripeGateway;
   ai: FakeAiProvider;
   geocoding: FakeGeocodingProvider;
   http: () => ReturnType<typeof request>;
 }
 
 export async function createTestApp(options: { mail?: MailSender } = {}): Promise<TestContext> {
-  const stripe = new FakeStripeGateway();
   const ai = new FakeAiProvider();
   const geocoding = new FakeGeocodingProvider();
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(GeocodingProvider)
     .useValue(geocoding)
-    .overrideProvider(StripeGateway)
-    .useValue(stripe)
     .overrideProvider(AiProvider)
     .useValue(ai);
   if (options.mail) builder = builder.overrideProvider(MailSender).useValue(options.mail);
   const moduleRef = await builder.compile();
-  const app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true, logger: false });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(app);
   await app.listen(0); // uma única porta efêmera, reaproveitada por todas as requisições
   // Esperas entre novas tentativas da IA não atrasam os testes (os valores ficam registrados).
@@ -48,7 +43,7 @@ export async function createTestApp(options: { mail?: MailSender } = {}): Promis
   worker.sleep = async (ms: number) => {
     aiWaits.push(ms);
   };
-  return { app, prisma: app.get(PrismaService), stripe, ai, geocoding, http: () => request(app.getHttpServer()) };
+  return { app, prisma: app.get(PrismaService), ai, geocoding, http: () => request(app.getHttpServer()) };
 }
 
 /** Limpa o banco e os contadores de rate limit (em memória) entre testes. */
@@ -83,7 +78,7 @@ export type TestUser = Awaited<ReturnType<typeof createUser>>;
 export async function createTrip(
   ctx: TestContext,
   owner: TestUser,
-  overrides: Partial<{ startDate: string; endDate: string; plan: TripPlan }> = {},
+  overrides: Partial<{ startDate: string; endDate: string }> = {},
 ) {
   const res = await ctx
     .http()
@@ -97,7 +92,6 @@ export async function createTrip(
       timeZone: 'Europe/Lisbon',
     })
     .expect(201);
-  if (overrides.plan) await ctx.prisma.trip.update({ where: { id: res.body.id }, data: { plan: overrides.plan } });
   return res.body as { id: string; days: { id: string; date: string }[] };
 }
 

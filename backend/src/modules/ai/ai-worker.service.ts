@@ -6,7 +6,6 @@ import { minutesToTime } from '../../common/utils/local-time';
 import { AppConfig } from '../../config/app-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiBudgetExhaustedError, AiCostService } from '../entitlements/ai-cost.service';
-import { PLAN_FEATURES } from '../entitlements/plan-policy';
 import { sortActivities } from '../itinerary/itinerary.mapper';
 import {
   AiErrorCode,
@@ -217,7 +216,6 @@ export class AiWorkerService implements OnApplicationBootstrap, OnApplicationShu
       include: { days: { include: { activities: true }, orderBy: { date: 'asc' } } },
     });
     if (!trip) throw new JobFailure('AI_PROVIDER_ERROR');
-    if (!PLAN_FEATURES[trip.plan].ai) throw new JobFailure('AI_UNAVAILABLE');
 
     const maxContext = this.config.get('AI_MAX_CONTEXT_ACTIVITIES_PER_DAY');
     const limits: OutputLimits = {

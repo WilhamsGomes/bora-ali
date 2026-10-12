@@ -51,13 +51,6 @@ export const envSchema = z
     /** Máximo de envios (inicial + reenvios) por convite. */
     INVITATION_MAX_SENDS: z.coerce.number().int().min(1).max(20).default(5),
 
-    STRIPE_SECRET_KEY: optionalString,
-    STRIPE_WEBHOOK_SECRET: optionalString,
-    STRIPE_PRICE_PRO: optionalString,
-    STRIPE_PRICE_PRO_AI: optionalString,
-    STRIPE_PRICE_UPGRADE_PRO_AI: optionalString,
-    STRIPE_ALLOW_LIVE_KEYS: bool.default(false),
-    CHECKOUT_SESSION_TTL_MINUTES: z.coerce.number().int().min(30).max(1440).default(60),
 
     AI_PROVIDER: z.enum(['anthropic', 'mock']).default('anthropic'),
     ANTHROPIC_API_KEY: optionalString,
@@ -159,13 +152,6 @@ export const envSchema = z
           });
         }
       }
-    }
-    if (env.STRIPE_SECRET_KEY?.startsWith('sk_live_') && !env.STRIPE_ALLOW_LIVE_KEYS) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['STRIPE_SECRET_KEY'],
-        message: 'Chaves live do Stripe são recusadas. Use sk_test_ (ou STRIPE_ALLOW_LIVE_KEYS=true conscientemente).',
-      });
     }
   });
 

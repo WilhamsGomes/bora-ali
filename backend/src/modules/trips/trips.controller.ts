@@ -22,7 +22,7 @@ export class TripsController {
   constructor(private readonly trips: TripsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Cria uma viagem (plano FREE) com um dia para cada data do período' })
+  @ApiOperation({ summary: 'Cria uma viagem com um dia para cada data do período' })
   @ApiCreatedResponse({ type: TripDetailDto })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateTripDto): Promise<TripDetailDto> {
     return this.trips.create(user.id, dto);
@@ -63,7 +63,6 @@ export class TripsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Exclui a viagem (OWNER)' })
   @ApiNoContentResponse()
-  @ApiConflictResponse({ type: ErrorResponseDto, description: 'TRIP_HAS_PENDING_PAYMENT' })
   remove(@CurrentUser() user: AuthUser, @Param('tripId', ParseUUIDPipe) tripId: string): Promise<void> {
     return this.trips.remove(user.id, tripId);
   }

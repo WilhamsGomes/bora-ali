@@ -1,5 +1,5 @@
 // Ambiente fixo para os testes e2e (não lê .env). Banco separado: boraali_test.
-// Nenhuma chamada externa é feita: Stripe, provedor de IA e e-mail são substituídos por fakes.
+// Nenhuma chamada externa é feita: provedor de IA, geocodificação e e-mail são substituídos por fakes.
 const base = process.env.DATABASE_URL_TEST ?? 'postgresql://boraali:boraali@localhost:5432/boraali_test?schema=public';
 
 Object.assign(process.env, {
@@ -14,11 +14,6 @@ Object.assign(process.env, {
   EMAIL_FROM: 'BoraAli Testes <convites@teste.dev>',
   INVITATION_RESEND_MIN_INTERVAL_SECONDS: '60',
   INVITATION_MAX_SENDS: '3',
-  STRIPE_SECRET_KEY: 'sk_test_fake',
-  STRIPE_WEBHOOK_SECRET: 'whsec_test_secret',
-  STRIPE_PRICE_PRO: 'price_pro',
-  STRIPE_PRICE_PRO_AI: 'price_pro_ai',
-  STRIPE_PRICE_UPGRADE_PRO_AI: 'price_upgrade',
   // Configuração "real" de preços/orçamento; o provedor é sempre o fake dos testes.
   AI_PROVIDER: 'anthropic',
   ANTHROPIC_API_KEY: 'test-key-never-used',

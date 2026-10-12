@@ -1,7 +1,7 @@
-import { PLAN_FEATURES } from '../src/modules/entitlements/plan-policy';
+import { MAX_ACTIVITIES_PER_DAY } from '../src/modules/entitlements/limits';
 import { activity, createTestApp, createTrip, createUser, resetDb, TestContext, TestUser } from './helpers';
 
-const FREE_LIMIT = PLAN_FEATURES.FREE.maxActivitiesPerDay!;
+const LIMIT = MAX_ACTIVITIES_PER_DAY;
 
 describe('Viagens, dias e atividades', () => {
   let ctx: TestContext;
@@ -24,7 +24,7 @@ describe('Viagens, dias e atividades', () => {
       const trip = await createTrip(ctx, owner, { startDate: '2026-12-30', endDate: '2027-01-02' });
       expect(trip.days.map((d) => d.date)).toEqual(['2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02']);
       const res = await ctx.http().get(`/api/v1/trips/${trip.id}`).set(owner.auth).expect(200);
-      expect(res.body).toMatchObject({ startDate: '2026-12-30', endDate: '2027-01-02', plan: 'FREE', role: 'OWNER' });
+      expect(res.body).toMatchObject({ startDate: '2026-12-30', endDate: '2027-01-02', role: 'OWNER' });
     });
 
     it('valida fuso IANA e intervalo de datas', async () => {
@@ -43,13 +43,13 @@ describe('Viagens, dias e atividades', () => {
     it('lista viagens próprias e recebidas por convite', async () => {
       const other = await createUser(ctx, 'Bruno');
       const mine = await createTrip(ctx, owner);
-      const theirs = await createTrip(ctx, other, { plan: 'PRO' });
+      const theirs = await createTrip(ctx, other);
       await ctx.prisma.tripMember.create({ data: { tripId: theirs.id, userId: owner.id, role: 'VIEWER' } });
 
       const all = await ctx.http().get('/api/v1/trips').set(owner.auth).expect(200);
       expect(all.body.map((t: { id: string }) => t.id).sort()).toEqual([mine.id, theirs.id].sort());
       const shared = await ctx.http().get('/api/v1/trips?scope=shared').set(owner.auth).expect(200);
-      expect(shared.body).toEqual([expect.objectContaining({ id: theirs.id, role: 'VIEWER', ownerName: 'Bruno', accessible: true })]);
+      expect(shared.body).toEqual([expect.objectContaining({ id: theirs.id, role: 'VIEWER', ownerName: 'Bruno' })]);
     });
 
     it('alterar datas preserva dias, cria novos e exige confirmação para remover atividades', async () => {
@@ -89,7 +89,7 @@ describe('Viagens, dias e atividades', () => {
 
   describe('atividades', () => {
     it('ordena por horário e desempata pela posição; alterar horário reposiciona', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+      const trip = await createTrip(ctx, owner);
       const day = trip.days[0].id;
       const b = (await post(trip.id, day, activity('B', '10:00')).expect(201)).body.activity;
       const c = (await post(trip.id, day, activity('C', '10:00')).expect(201)).body.activity;
@@ -168,17 +168,17 @@ describe('Viagens, dias e atividades', () => {
     });
   });
 
-  describe('limite do plano FREE', () => {
-    it(`bloqueia a ${FREE_LIMIT + 1}ª atividade do dia, para qualquer categoria`, async () => {
+  describe('limite de atividades por dia', () => {
+    it(`bloqueia a ${LIMIT + 1}ª atividade do dia, para qualquer categoria`, async () => {
       const trip = await createTrip(ctx, owner);
       const day = trip.days[0].id;
       const cats = ['transporte', 'hospedagem', 'descanso', 'passeio', 'alimentacao', 'outros'];
-      for (let i = 0; i < FREE_LIMIT; i++) {
+      for (let i = 0; i < LIMIT; i++) {
         await post(trip.id, day, activity(`a${i}`, '09:00', { category: cats[i % cats.length] })).expect(201);
       }
       const res = await post(trip.id, day, activity('Outra', '10:00')).expect(403);
       expect(res.body.code).toBe('DAILY_ACTIVITY_LIMIT_REACHED');
-      expect(res.body.details).toMatchObject({ limit: FREE_LIMIT, currentCount: FREE_LIMIT });
+      expect(res.body.details).toMatchObject({ limit: LIMIT, currentCount: LIMIT });
     });
 
     it('protege o limite contra requisições concorrentes', async () => {
@@ -189,9 +189,9 @@ describe('Viagens, dias e atividades', () => {
       );
       const created = results.filter((r) => r.status === 201).length;
       const limited = results.filter((r) => r.body.code === 'DAILY_ACTIVITY_LIMIT_REACHED').length;
-      expect(created).toBe(FREE_LIMIT);
-      expect(limited).toBe(10 - FREE_LIMIT);
-      expect(await ctx.prisma.activity.count({ where: { dayId: day } })).toBe(FREE_LIMIT);
+      expect(created).toBe(LIMIT);
+      expect(limited).toBe(10 - LIMIT);
+      expect(await ctx.prisma.activity.count({ where: { dayId: day } })).toBe(LIMIT);
     });
 
     it('adição em lote é atômica e respeita o limite por dia', async () => {
@@ -199,7 +199,7 @@ describe('Viagens, dias e atividades', () => {
       const [d1, d2] = trip.days;
       // Um item a mais que o limite no 1º dia, e um no 2º
       const items = [
-        ...Array.from({ length: FREE_LIMIT + 1 }, (_, i) => ({ ...activity(`a${i}`, '09:00'), dayId: d1.id })),
+        ...Array.from({ length: LIMIT + 1 }, (_, i) => ({ ...activity(`a${i}`, '09:00'), dayId: d1.id })),
         { ...activity('c', '09:00'), dayId: d2.id },
       ];
       const res = await ctx.http().post(`/api/v1/trips/${trip.id}/activities/batch`).set(owner.auth).send({ items }).expect(403);
@@ -212,14 +212,14 @@ describe('Viagens, dias e atividades', () => {
         .set(owner.auth)
         .send({ items: items.slice(1) })
         .expect(201);
-      expect(ok.body.activities).toHaveLength(FREE_LIMIT + 1);
+      expect(ok.body.activities).toHaveLength(LIMIT + 1);
     });
 
     it('lotes concorrentes não ultrapassam o limite', async () => {
       const trip = await createTrip(ctx, owner);
       const day = trip.days[0].id;
       // Cada lote cabe sozinho, mas dois juntos passam do limite
-      const size = Math.floor(FREE_LIMIT / 2) + 1;
+      const size = Math.floor(LIMIT / 2) + 1;
       const batch = { items: Array.from({ length: size }, (_, i) => ({ ...activity(`x${i}`, '09:00'), dayId: day })) };
       const results = await Promise.all(
         [0, 1, 2].map(() => ctx.http().post(`/api/v1/trips/${trip.id}/activities/batch`).set(owner.auth).send(batch)),
@@ -231,7 +231,7 @@ describe('Viagens, dias e atividades', () => {
     it('verifica o limite ao mover atividade entre dias', async () => {
       const trip = await createTrip(ctx, owner);
       const [d1, d2] = trip.days;
-      for (let i = 0; i < FREE_LIMIT; i++) await post(trip.id, d1.id, activity(`a${i}`, `1${i}:00`)).expect(201);
+      for (let i = 0; i < LIMIT; i++) await post(trip.id, d1.id, activity(`a${i}`, '09:00')).expect(201);
       const moving = (await post(trip.id, d2.id, activity('Mover', '08:00')).expect(201)).body.activity;
 
       const res = await ctx
@@ -243,18 +243,23 @@ describe('Viagens, dias e atividades', () => {
       expect(res.body.code).toBe('DAILY_ACTIVITY_LIMIT_REACHED');
     });
 
-    it('após voltar ao FREE, dia acima do limite permite consultar/editar/excluir mas não adicionar', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+    it('dia acima do limite (dados antigos) permite consultar/editar/excluir mas não adicionar', async () => {
+      const trip = await createTrip(ctx, owner);
       const day = trip.days[0].id;
-      const created = [];
-      // Dois acima do limite: excluir uma ainda deixa o dia acima do limite
-      for (let i = 0; i < FREE_LIMIT + 2; i++) {
-        created.push((await post(trip.id, day, activity(`a${i}`, `1${i}:00`)).expect(201)).body.activity);
-      }
-      await ctx.prisma.trip.update({ where: { id: trip.id }, data: { plan: 'FREE' } });
+      // Dois acima do limite, gravados direto no banco (a API não deixa passar do limite)
+      await ctx.prisma.activity.createMany({
+        data: Array.from({ length: LIMIT + 2 }, (_, i) => ({
+          tripId: trip.id,
+          dayId: day,
+          title: `a${i}`,
+          startMinutes: 9 * 60,
+          position: i,
+        })),
+      });
+      const created = await ctx.prisma.activity.findMany({ where: { dayId: day }, orderBy: { position: 'asc' } });
 
       const dayRes = await ctx.http().get(`/api/v1/trips/${trip.id}/days/${day}`).set(owner.auth).expect(200);
-      expect(dayRes.body.activities).toHaveLength(FREE_LIMIT + 2);
+      expect(dayRes.body.activities).toHaveLength(LIMIT + 2);
       expect(dayRes.body.canAddActivities).toBe(false);
 
       await ctx
@@ -266,7 +271,7 @@ describe('Viagens, dias e atividades', () => {
       await ctx.http().delete(`/api/v1/trips/${trip.id}/activities/${created[1].id}`).set(owner.auth).expect(204);
       const add = await post(trip.id, day, activity('Nova', '18:00')).expect(403);
       expect(add.body.code).toBe('DAILY_ACTIVITY_LIMIT_REACHED');
-      expect(await ctx.prisma.activity.count()).toBe(FREE_LIMIT + 1);
+      expect(await ctx.prisma.activity.count()).toBe(LIMIT + 1);
     });
   });
 });

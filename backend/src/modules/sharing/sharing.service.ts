@@ -6,7 +6,6 @@ import { minutesToTime } from '../../common/utils/local-time';
 import { generateToken } from '../../common/utils/secure-token';
 import { AppConfig } from '../../config/app-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PLAN_FEATURES } from '../entitlements/plan-policy';
 import { TripAccessService } from '../entitlements/trip-access.service';
 import { sortActivities } from '../itinerary/itinerary.mapper';
 import type { PublicTripDto, ShareLinkDto, UpdateShareLinkDto } from './dto/sharing.dto';
@@ -38,8 +37,7 @@ export class SharingService {
   }
 
   async update(userId: string, tripId: string, dto: UpdateShareLinkDto): Promise<ShareLinkDto> {
-    // Desativar é sempre permitido ao proprietário; ativar/configurar exige plano com compartilhamento.
-    const { trip } = await this.access.require(userId, tripId, dto.enabled ? 'share:manage' : 'trip:manage');
+    const { trip } = await this.access.require(userId, tripId, 'share:manage');
     const link = await this.prisma.shareLink.upsert({
       where: { tripId },
       create: { tripId, token: generateToken(), enabled: dto.enabled, showNotes: dto.showNotes ?? false },
@@ -70,7 +68,7 @@ export class SharingService {
         trip: { include: { days: { include: { activities: true }, orderBy: { date: 'asc' } } } },
       },
     });
-    if (!link || !link.enabled || !PLAN_FEATURES[link.trip.plan].publicSharing) throw notFound();
+    if (!link || !link.enabled) throw notFound();
 
     const { trip } = link;
     return {
@@ -105,7 +103,7 @@ export class SharingService {
     if (!link) return { enabled: false, active: false, showNotes: false, url: null, token: null };
     return {
       enabled: link.enabled,
-      active: link.enabled && PLAN_FEATURES[trip.plan].publicSharing,
+      active: link.enabled,
       showNotes: link.showNotes,
       url: `${this.config.get('FRONTEND_URL')}/r/${link.token}`,
       token: link.token,

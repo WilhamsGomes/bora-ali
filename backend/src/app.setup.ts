@@ -40,8 +40,8 @@ export function setupSwagger(app: INestApplication): void {
     .setTitle('BoraAli API')
     .setDescription(
       [
-        'API REST do BoraAli: roteiros de viagem com planejamento manual, colaboração, compartilhamento, ',
-        'pagamento único por viagem (Stripe) e geração com IA.\n\n',
+        'API REST do BoraAli: roteiros de viagem com planejamento manual, colaboração, compartilhamento ',
+        'e geração com IA.\n\n',
         '**Erros** seguem o formato `{ code, message, details?, requestId }`. Decida pelo `code`.\n\n',
         '**Autenticação**: `Authorization: Bearer <accessToken>`; o refresh token trafega apenas em cookie httpOnly.',
       ].join(''),

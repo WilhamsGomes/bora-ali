@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Header, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -30,7 +29,6 @@ export class SharingController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Ativa/desativa o link público e define se observações aparecem (OWNER; PRO/PRO_AI para ativar)' })
   @ApiOkResponse({ type: ShareLinkDto })
-  @ApiForbiddenResponse({ type: ErrorResponseDto, description: 'TRIP_UPGRADE_REQUIRED' })
   update(
     @CurrentUser() user: AuthUser,
     @Param('tripId', ParseUUIDPipe) tripId: string,

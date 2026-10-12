@@ -259,7 +259,7 @@ describe('Localizações: lugares das atividades, destino e busca', () => {
     });
 
     it('exige autenticação e acesso de edição à viagem', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+      const trip = await createTrip(ctx, owner);
       const viewer = await createUser(ctx, 'Vera');
       const editor = await createUser(ctx, 'Edu');
       const stranger = await createUser(ctx, 'Estranho');
@@ -416,7 +416,7 @@ describe('Localizações: lugares das atividades, destino e busca', () => {
 
   describe('link público', () => {
     it('expõe coordenadas das atividades, exceto hospedagem, e nunca a hospedagem da viagem', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+      const trip = await createTrip(ctx, owner);
       await ctx
         .http()
         .patch(api(trip.id))

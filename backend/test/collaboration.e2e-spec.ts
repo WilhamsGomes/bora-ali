@@ -27,7 +27,7 @@ describe('Autorização, convites e compartilhamento', () => {
   afterAll(() => ctx.app.close());
 
   async function proTripWithMembers() {
-    const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+    const trip = await createTrip(ctx, owner);
     await addMember(ctx, trip.id, editor, 'EDITOR');
     await addMember(ctx, trip.id, viewer, 'VIEWER');
     return trip;
@@ -61,7 +61,7 @@ describe('Autorização, convites e compartilhamento', () => {
       expect(hidden.body.code).toBe('TRIP_NOT_FOUND');
     });
 
-    it('somente o OWNER edita a viagem, convida, compartilha e compra', async () => {
+    it('somente o OWNER edita a viagem, convida e compartilha', async () => {
       const trip = await proTripWithMembers();
       await ctx.http().patch(`/api/v1/trips/${trip.id}`).set(editor.auth).send({ name: 'x' }).expect(403);
       await ctx.http().delete(`/api/v1/trips/${trip.id}`).set(editor.auth).expect(403);
@@ -72,55 +72,29 @@ describe('Autorização, convites e compartilhamento', () => {
         .send({ email: 'x@teste.dev', role: 'VIEWER' })
         .expect(403);
       await ctx.http().put(`/api/v1/trips/${trip.id}/share`).set(editor.auth).send({ enabled: true }).expect(403);
-      await ctx.http().post('/api/v1/billing/checkout').set(editor.auth).send({ tripId: trip.id, plan: 'PRO_AI' }).expect(403);
     });
 
-    it('viagem que voltou ao FREE suspende o acesso de convidados, mas não do proprietário', async () => {
+    it('entitlements trazem limite fixo, papel e IA, sem plano nem compra', async () => {
       const trip = await proTripWithMembers();
-      await ctx.prisma.trip.update({ where: { id: trip.id }, data: { plan: 'FREE' } });
-      const res = await ctx.http().get(`/api/v1/trips/${trip.id}`).set(editor.auth).expect(403);
-      expect(res.body.code).toBe('TRIP_UPGRADE_REQUIRED');
-      await ctx.http().get(`/api/v1/trips/${trip.id}`).set(owner.auth).expect(200);
-    });
-
-    it('entitlements refletem plano, papel e upgrades', async () => {
-      const free = await createTrip(ctx, owner);
-      const res = await ctx.http().get(`/api/v1/trips/${free.id}/entitlements`).set(owner.auth).expect(200);
-      expect(res.body).toMatchObject({
-        plan: 'FREE',
-        maxActivitiesPerDay: 5,
-        collaboration: false,
-        publicSharing: false,
-        ai: { enabled: false, usage: { DAY_SUGGESTIONS: { limit: 2, used: 0, reserved: 0, remaining: 2 } } },
-        canPurchase: true,
-        availableUpgrades: [
-          { plan: 'PRO', product: 'PRO', amount: 990, currency: 'BRL' },
-          { plan: 'PRO_AI', product: 'PRO_AI', amount: 1990, currency: 'BRL' },
-        ],
+      const asOwner = await ctx.http().get(`/api/v1/trips/${trip.id}/entitlements`).set(owner.auth).expect(200);
+      expect(asOwner.body).toEqual({
+        tripId: trip.id,
+        role: 'OWNER',
+        maxActivitiesPerDay: 10,
+        ai: expect.objectContaining({
+          available: true,
+          canRequest: true,
+          usage: expect.objectContaining({ DAY_SUGGESTIONS: { limit: 2, used: 0, reserved: 0, remaining: 2 } }),
+        }),
       });
-
-      const pro = await proTripWithMembers();
-      const asEditor = await ctx.http().get(`/api/v1/trips/${pro.id}/entitlements`).set(editor.auth).expect(200);
-      expect(asEditor.body).toMatchObject({ plan: 'PRO', maxActivitiesPerDay: null, canPurchase: false, availableUpgrades: [] });
-      const asOwner = await ctx.http().get(`/api/v1/trips/${pro.id}/entitlements`).set(owner.auth).expect(200);
-      expect(asOwner.body.availableUpgrades).toEqual([{ plan: 'PRO_AI', product: 'UPGRADE_PRO_AI', amount: 1000, currency: 'BRL' }]);
+      const asViewer = await ctx.http().get(`/api/v1/trips/${trip.id}/entitlements`).set(viewer.auth).expect(200);
+      expect(asViewer.body).toMatchObject({ role: 'VIEWER', ai: { canRequest: false } });
     });
   });
 
   describe('convites', () => {
-    it('FREE não permite convidar', async () => {
-      const trip = await createTrip(ctx, owner);
-      const res = await ctx
-        .http()
-        .post(`/api/v1/trips/${trip.id}/invitations`)
-        .set(owner.auth)
-        .send({ email: 'x@teste.dev', role: 'EDITOR' })
-        .expect(403);
-      expect(res.body).toMatchObject({ code: 'TRIP_UPGRADE_REQUIRED', details: { feature: 'collaboration' } });
-    });
-
     it('fluxo completo: envio, token com hash, aceite com e-mail correto e sem duplicidade', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+      const trip = await createTrip(ctx, owner);
       const guestEmail = 'convidado@teste.dev';
       const inv = await ctx
         .http()
@@ -163,7 +137,7 @@ describe('Autorização, convites e compartilhamento', () => {
     });
 
     it('convite revogado ou expirado não pode ser aceito', async () => {
-      const trip = await createTrip(ctx, owner, { plan: 'PRO' });
+      const trip = await createTrip(ctx, owner);
       const inv = await ctx
         .http()
         .post(`/api/v1/trips/${trip.id}/invitations`)
@@ -240,14 +214,12 @@ describe('Autorização, convites e compartilhamento', () => {
       expect(off.body.code).toBe('SHARE_LINK_NOT_FOUND');
     });
 
-    it('FREE não ativa link e plano revertido desativa o acesso público', async () => {
-      const free = await createTrip(ctx, owner);
-      const res = await ctx.http().put(`/api/v1/trips/${free.id}/share`).set(owner.auth).send({ enabled: true }).expect(403);
-      expect(res.body.code).toBe('TRIP_UPGRADE_REQUIRED');
-
-      const pro = await createTrip(ctx, owner, { plan: 'PRO' });
-      const share = await ctx.http().put(`/api/v1/trips/${pro.id}/share`).set(owner.auth).send({ enabled: true }).expect(200);
-      await ctx.prisma.trip.update({ where: { id: pro.id }, data: { plan: 'FREE' } });
+    it('qualquer viagem pode ativar o link público; desativar volta a esconder', async () => {
+      const trip = await createTrip(ctx, owner);
+      const share = await ctx.http().put(`/api/v1/trips/${trip.id}/share`).set(owner.auth).send({ enabled: true }).expect(200);
+      expect(share.body).toMatchObject({ enabled: true, active: true });
+      await ctx.http().get(`/api/v1/public/trips/${share.body.token}`).expect(200);
+      await ctx.http().put(`/api/v1/trips/${trip.id}/share`).set(owner.auth).send({ enabled: false }).expect(200);
       await ctx.http().get(`/api/v1/public/trips/${share.body.token}`).expect(404);
     });
   });

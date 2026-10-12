@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { OrderStatus, Trip, TripRole } from '@prisma/client';
+import { Trip, TripRole } from '@prisma/client';
 import { AppError, ErrorCode } from '../../common/errors/app-error';
 import { datesInRange, daySpan, fromLocalDate, toLocalDate } from '../../common/utils/local-date';
 import { AppConfig } from '../../config/app-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PLAN_FEATURES } from '../entitlements/plan-policy';
 import { TripAccessService } from '../entitlements/trip-access.service';
 import { ItineraryService } from '../itinerary/itinerary.service';
 import { resolvePlace, samePlaceText } from '../locations/place';
@@ -31,7 +30,6 @@ export function toTripDto(trip: Trip, role: TripRole): TripDto {
             provider: trip.destinationPlaceProvider,
           }
         : null,
-    plan: trip.plan,
     role,
     createdAt: trip.createdAt,
     updatedAt: trip.updatedAt,
@@ -111,7 +109,6 @@ export class TripsService {
       dayCount: trip._count.days,
       activityCount: trip._count.activities,
       ownerName: trip.owner.name,
-      accessible: role === TripRole.OWNER || PLAN_FEATURES[trip.plan].collaboration,
     }));
   }
 
@@ -168,16 +165,6 @@ export class TripsService {
     await this.prisma.$transaction(async (tx) => {
       await this.access.require(userId, tripId, 'trip:manage', tx);
       await this.prisma.lockRows(tx, 'Trip', [tripId]);
-      const pending = await tx.order.count({
-        where: { tripId, status: { in: [OrderStatus.CREATED, OrderStatus.OPEN, OrderStatus.PROCESSING] } },
-      });
-      if (pending > 0) {
-        throw AppError.conflict(
-          ErrorCode.TRIP_HAS_PENDING_PAYMENT,
-          'Há um pagamento em andamento para esta viagem. Aguarde a conclusão antes de excluí-la.',
-        );
-      }
-      // Pedidos são mantidos (tripId vira nulo) para fins contábeis.
       await tx.trip.delete({ where: { id: tripId } });
     });
   }

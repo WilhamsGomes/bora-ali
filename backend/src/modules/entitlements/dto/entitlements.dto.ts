@@ -1,19 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { BillingProduct, TripPlan, TripRole } from '@prisma/client';
-
-export class UpgradeOptionDto {
-  @ApiProperty({ enum: TripPlan })
-  plan: TripPlan;
-
-  @ApiProperty({ enum: BillingProduct })
-  product: BillingProduct;
-
-  @ApiProperty({ example: 990, description: 'Valor em centavos' })
-  amount: number;
-
-  @ApiProperty({ example: 'BRL' })
-  currency: string;
-}
+import { TripRole } from '@prisma/client';
 
 export class AiKindUsageDto {
   @ApiProperty({ example: 30 })
@@ -41,9 +27,6 @@ export class AiUsageDto {
 }
 
 export class AiEntitlementDto {
-  @ApiProperty({ description: 'O plano inclui IA' })
-  enabled: boolean;
-
   @ApiProperty({ description: 'A IA pode ser usada agora nesta viagem (provedor configurado e limite interno não atingido)' })
   available: boolean;
 
@@ -65,30 +48,13 @@ export class EntitlementsDto {
   @ApiProperty({ format: 'uuid' })
   tripId: string;
 
-  @ApiProperty({ enum: TripPlan })
-  plan: TripPlan;
-
   @ApiProperty({ enum: TripRole })
   role: TripRole;
 
-  @ApiProperty({ type: Number, nullable: true, example: 3, description: 'null = ilimitado' })
-  maxActivitiesPerDay: number | null;
-
-  @ApiProperty()
-  collaboration: boolean;
-
-  @ApiProperty()
-  publicSharing: boolean;
+  @ApiProperty({ example: 10, description: 'Máximo de atividades por dia (fixo na v1)' })
+  maxActivitiesPerDay: number;
 
   @ApiProperty({ type: AiEntitlementDto })
   ai: AiEntitlementDto;
 
-  @ApiProperty({ description: 'Somente o proprietário pode comprar ou fazer upgrade' })
-  canPurchase: boolean;
-
-  @ApiProperty({ type: [UpgradeOptionDto] })
-  availableUpgrades: UpgradeOptionDto[];
-
-  @ApiProperty({ description: 'Existe um pagamento em andamento para a viagem' })
-  hasPendingOrder: boolean;
 }

@@ -20,7 +20,7 @@ export class EntitlementsController {
   @Get()
   @ApiOperation({
     summary:
-      "Plano, limites, recursos, consumo de IA e upgrades disponíveis da viagem",
+      "Limites da viagem, papel do usuário e consumo de IA",
   })
   @ApiOkResponse({ type: EntitlementsDto })
   @ApiNotFoundResponse({ type: ErrorResponseDto })

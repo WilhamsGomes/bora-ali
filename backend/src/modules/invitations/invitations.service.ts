@@ -297,8 +297,6 @@ export class InvitationsService {
           { emailHint: maskEmail(inv.email) },
         );
       }
-      this.access.requireFeature(inv.trip, 'collaboration');
-
       // Marca o convite como usado de forma condicional (protege contra aceite duplo concorrente).
       const used = await tx.invitation.updateMany({
         where: { id: inv.id, acceptedAt: null, revokedAt: null },

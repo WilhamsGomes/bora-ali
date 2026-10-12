@@ -4,7 +4,7 @@ import { AppError, ErrorCode } from '../../common/errors/app-error';
 import { datesInRange, fromLocalDate, toLocalDate } from '../../common/utils/local-date';
 import { timeToMinutes } from '../../common/utils/local-time';
 import { PrismaService, Tx } from '../../prisma/prisma.service';
-import { availableUpgrades, PLAN_FEATURES } from '../entitlements/plan-policy';
+import { MAX_ACTIVITIES_PER_DAY } from '../entitlements/limits';
 import { TripAccessService } from '../entitlements/trip-access.service';
 import { resolvePlace, samePlaceText } from '../locations/place';
 import type {
@@ -39,19 +39,18 @@ export class ItineraryService {
     return this.loadDays(trip);
   }
 
-  async loadDays(trip: Pick<Trip, 'id' | 'plan'>, db: Tx | PrismaService = this.prisma): Promise<DayDto[]> {
+  async loadDays(trip: Pick<Trip, 'id'>, db: Tx | PrismaService = this.prisma): Promise<DayDto[]> {
     const days = await db.tripDay.findMany({
       where: { tripId: trip.id },
       include: { activities: true },
       orderBy: { date: 'asc' },
     });
-    const max = PLAN_FEATURES[trip.plan].maxActivitiesPerDay;
-    return days.map((d) => toDayDto(d, max));
+    return days.map((d) => toDayDto(d, MAX_ACTIVITIES_PER_DAY));
   }
 
   async getDay(userId: string, tripId: string, dayId: string): Promise<DayDto> {
-    const { trip } = await this.access.require(userId, tripId, 'trip:read');
-    return this.dayDto(this.prisma, trip, dayId);
+    await this.access.require(userId, tripId, 'trip:read');
+    return this.dayDto(this.prisma, dayId);
   }
 
   async getActivity(userId: string, tripId: string, activityId: string): Promise<ActivityDto> {
@@ -60,12 +59,12 @@ export class ItineraryService {
   }
 
   async updateDay(userId: string, tripId: string, dayId: string, dto: UpdateDayDto): Promise<DayDto> {
-    const { trip } = await this.access.require(userId, tripId, 'itinerary:write');
+    await this.access.require(userId, tripId, 'itinerary:write');
     await this.findDay(this.prisma, tripId, dayId);
     if (dto.title !== undefined) {
       await this.prisma.tripDay.update({ where: { id: dayId }, data: { title: dto.title || null } });
     }
-    return this.dayDto(this.prisma, trip, dayId);
+    return this.dayDto(this.prisma, dayId);
   }
 
   // ───────────────────────────── Escrita ─────────────────────────────
@@ -77,10 +76,10 @@ export class ItineraryService {
     dto: ActivityInputDto,
   ): Promise<ActivityMutationResultDto> {
     return this.prisma.$transaction(async (tx) => {
-      const { trip } = await this.access.require(userId, tripId, 'itinerary:write', tx);
+      await this.access.require(userId, tripId, 'itinerary:write', tx);
       const day = await this.findDay(tx, tripId, dayId);
       await this.prisma.lockRows(tx, 'TripDay', [day.id]);
-      await this.assertCapacity(tx, trip, [{ dayId: day.id, adding: 1 }]);
+      await this.assertCapacity(tx, [{ dayId: day.id, adding: 1 }]);
 
       const data = this.toData(dto);
       const position = await this.nextPosition(tx, day.id, data.startMinutes);
@@ -94,7 +93,7 @@ export class ItineraryService {
   /** Adição em lote atômica: ou todas as atividades entram, ou nenhuma. */
   async batchCreate(userId: string, tripId: string, dto: BatchCreateActivitiesDto): Promise<BatchCreateResultDto> {
     return this.prisma.$transaction(async (tx) => {
-      const { trip } = await this.access.require(userId, tripId, 'itinerary:write', tx);
+      await this.access.require(userId, tripId, 'itinerary:write', tx);
       const dayIds = [...new Set(dto.items.map((i) => i.dayId))];
       const days = await tx.tripDay.findMany({ where: { id: { in: dayIds }, tripId }, select: { id: true } });
       if (days.length !== dayIds.length) {
@@ -103,7 +102,6 @@ export class ItineraryService {
       await this.prisma.lockRows(tx, 'TripDay', dayIds);
       await this.assertCapacity(
         tx,
-        trip,
         dayIds.map((id) => ({ dayId: id, adding: dto.items.filter((i) => i.dayId === id).length })),
       );
 
@@ -130,7 +128,7 @@ export class ItineraryService {
     dto: UpdateActivityDto,
   ): Promise<ActivityMutationResultDto> {
     return this.prisma.$transaction(async (tx) => {
-      const { trip } = await this.access.require(userId, tripId, 'itinerary:write', tx);
+      await this.access.require(userId, tripId, 'itinerary:write', tx);
       const current = await this.findActivity(tx, tripId, activityId);
       this.assertVersion(current, dto.version);
 
@@ -138,7 +136,7 @@ export class ItineraryService {
       const moving = targetDayId !== current.dayId;
       if (moving) await this.findDay(tx, tripId, targetDayId);
       await this.prisma.lockRows(tx, 'TripDay', [current.dayId, targetDayId]);
-      if (moving) await this.assertCapacity(tx, trip, [{ dayId: targetDayId, adding: 1 }]);
+      if (moving) await this.assertCapacity(tx, [{ dayId: targetDayId, adding: 1 }]);
 
       const { version: _v, dayId: _d, ...fields } = dto;
       const data = this.toPartialData(fields, current);
@@ -178,7 +176,7 @@ export class ItineraryService {
    */
   async reorder(userId: string, tripId: string, dayId: string, dto: ReorderActivitiesDto): Promise<DayDto> {
     return this.prisma.$transaction(async (tx) => {
-      const { trip } = await this.access.require(userId, tripId, 'itinerary:write', tx);
+      await this.access.require(userId, tripId, 'itinerary:write', tx);
       await this.findDay(tx, tripId, dayId);
       await this.prisma.lockRows(tx, 'TripDay', [dayId]);
       const activities = await tx.activity.findMany({ where: { dayId } });
@@ -212,7 +210,7 @@ export class ItineraryService {
           data: { position: index, version: { increment: 1 }, updatedById: userId },
         });
       }
-      return this.dayDto(tx, trip, dayId);
+      return this.dayDto(tx, dayId);
     });
   }
 
@@ -270,14 +268,13 @@ export class ItineraryService {
   // ───────────────────────────── Auxiliares ─────────────────────────────
 
   /**
-   * Limite diário do plano. Precisa ser chamado com os dias já bloqueados
+   * Limite fixo de atividades por dia. Precisa ser chamado com os dias já bloqueados
    * (FOR UPDATE) na mesma transação, para que requisições concorrentes não
-   * ultrapassem o limite. Dias que já estão acima do limite (ex.: após reembolso)
-   * continuam editáveis, mas não aceitam novas atividades.
+   * ultrapassem o limite. Dias que já estão acima do limite continuam editáveis,
+   * mas não aceitam novas atividades.
    */
-  private async assertCapacity(tx: Tx, trip: Trip, additions: { dayId: string; adding: number }[]): Promise<void> {
-    const max = PLAN_FEATURES[trip.plan].maxActivitiesPerDay;
-    if (max === null) return;
+  private async assertCapacity(tx: Tx, additions: { dayId: string; adding: number }[]): Promise<void> {
+    const max = MAX_ACTIVITIES_PER_DAY;
     const counts = await tx.activity.groupBy({
       by: ['dayId'],
       where: { dayId: { in: additions.map((a) => a.dayId) } },
@@ -288,17 +285,8 @@ export class ItineraryService {
       if (current + adding > max) {
         throw AppError.forbidden(
           ErrorCode.DAILY_ACTIVITY_LIMIT_REACHED,
-          `O plano gratuito permite até ${max} atividades por dia.`,
-          {
-            dayId,
-            limit: max,
-            currentCount: current,
-            attempted: adding,
-            requiredPlans: Object.entries(PLAN_FEATURES)
-              .filter(([, f]) => f.maxActivitiesPerDay === null)
-              .map(([plan]) => plan),
-            availableUpgrades: availableUpgrades(trip.plan),
-          },
+          `Cada dia pode ter até ${max} atividades.`,
+          { dayId, limit: max, currentCount: current, attempted: adding },
         );
       }
     }
@@ -325,9 +313,9 @@ export class ItineraryService {
     return computeOverlaps(activities).filter((w) => ids.has(w.activityId) || ids.has(w.overlapsWithActivityId));
   }
 
-  private async dayDto(db: Tx | PrismaService, trip: Pick<Trip, 'plan'>, dayId: string): Promise<DayDto> {
+  private async dayDto(db: Tx | PrismaService, dayId: string): Promise<DayDto> {
     const day = await db.tripDay.findUniqueOrThrow({ where: { id: dayId }, include: { activities: true } });
-    return toDayDto(day, PLAN_FEATURES[trip.plan].maxActivitiesPerDay);
+    return toDayDto(day, MAX_ACTIVITIES_PER_DAY);
   }
 
   private async findDay(db: Tx | PrismaService, tripId: string, dayId: string) {

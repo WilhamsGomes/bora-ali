@@ -6,7 +6,6 @@ import { AppConfig } from '../../config/app-config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiQuotaService } from '../entitlements/ai-quota.service';
 import type { AiEntitlementDto } from '../entitlements/dto/entitlements.dto';
-import { PLAN_FEATURES } from '../entitlements/plan-policy';
 import { roleCan, TripAccessService } from '../entitlements/trip-access.service';
 import { JobInput, jobInputSchema } from './ai.schemas';
 import type { AiJobDto, AiJobResultDto } from './dto/ai.dto';
@@ -59,12 +58,10 @@ export class AiJobsService {
   async status(userId: string, tripId: string): Promise<AiEntitlementDto> {
     const { trip, role } = await this.access.require(userId, tripId, 'trip:read');
     const availability = await this.quota.availabilityFor(trip.id);
-    const enabled = PLAN_FEATURES[trip.plan].ai;
     return {
-      enabled,
       available: availability.available,
       unavailableReason: availability.reason,
-      canRequest: enabled && availability.available && roleCan(role, 'ai:use'),
+      canRequest: availability.available && roleCan(role, 'ai:use'),
       usage: await this.quota.usage(tripId),
     };
   }
