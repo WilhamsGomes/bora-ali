@@ -1,0 +1,87 @@
+# BoraAli em produção (VM): PostgreSQL + API + frontend, com um comando:
+#
+#   cp .env.production.example .env   # preencha os segredos
+#   docker compose up -d --build
+#
+# As portas ficam presas em 127.0.0.1: o Nginx do host faz o HTTPS e encaminha cada subdomínio
+# (veja deploy/nginx/boraali.conf). O banco não é exposto fora da rede do compose.
+# Desenvolvimento local continua com backend/docker-compose.yml (projeto "boraali", volume próprio).
+name: boraali-prod
+
+x-api-env: &api-env
+  NODE_ENV: production
+  PORT: "3333"
+  DATABASE_URL: postgresql://boraali:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@postgres:5432/boraali?schema=public
+  CORS_ORIGINS: https://${WEB_DOMAIN:?defina WEB_DOMAIN no .env}
+  FRONTEND_URL: https://${WEB_DOMAIN}
+  # Nginx do host na frente: 1 proxy confiável (IP real no rate limiting e cookies Secure).
+  TRUST_PROXY: "1"
+  COOKIE_SECURE: "true"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: boraali-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: boraali
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: boraali
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boraali -d boraali"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Aplica as migrações pendentes a cada subida e termina.
+  migrate:
+    build: ./backend
+    image: boraali-backend:prod
+    container_name: boraali-migrate
+    command: ["npx", "prisma", "migrate", "deploy"]
+    env_file: .env
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: ./backend
+    image: boraali-backend:prod
+    container_name: boraali-backend
+    restart: unless-stopped
+    command: ["node", "dist/main.js"]
+    env_file: .env
+    environment: *api-env
+    ports:
+      - "127.0.0.1:${API_PORT:-3007}:3333"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3333/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN:?defina API_DOMAIN no .env}/api/v1
+        NEXT_PUBLIC_MAP_STYLE_URL: ${NEXT_PUBLIC_MAP_STYLE_URL:-}
+    image: boraali-frontend:prod
+    container_name: boraali-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3008}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
